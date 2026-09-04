@@ -224,6 +224,11 @@ header h1 {
 #stats {
 	color: var(--dim);
 	font-size: 12px;
+	flex-shrink: 1;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 /* ---- global search box and its dropdown ---- */
@@ -533,6 +538,8 @@ a.ent:hover {
 
 /* ---- header chips (index status, pending changes) ---- */
 .chip {
+	display: inline-flex;
+	align-items: center;
 	font-size: 12px;
 	border-radius: 10px;
 	padding: 2px 10px;
@@ -1417,6 +1424,94 @@ a.ent:hover {
 /* ---- pending changes dropdown in the header ---- */
 #changes {
 	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* chip that opens a dropdown (pending changes): pointer + caret icon */
+.chip.chipmenu {
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding-right: 4px;
+}
+
+.chip.chipmenu .ic {
+	width: 16px;
+	height: 16px;
+}
+
+/* dropdown panel of the menu bar */
+.dmenu {
+	position: absolute;
+	min-width: 240px;
+	width: max-content;
+	max-width: 320px;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+	padding: 6px;
+	z-index: 20;
+	font-size: 13px;
+}
+
+.dmenu .rmh {
+	font-size: 11px;
+	color: var(--dim);
+	padding: 4px 8px;
+}
+
+.dmenu .rmi {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+	border-radius: 6px;
+	cursor: pointer;
+}
+
+.dmenu .rmi:hover {
+	background: var(--line-soft);
+}
+
+.dmenu .rmi.off {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.dmenu .rms {
+	border-top: 1px solid var(--line-soft);
+	margin: 4px 0;
+}
+
+/* the menu bar itself (header, after the title) */
+#menubar {
+	position: relative;
+	display: flex;
+	gap: 2px;
+}
+
+#menubar .mb {
+	background: none;
+	border: 0;
+	padding: 4px 9px;
+	font: inherit;
+	font-size: 13px;
+	color: var(--txt);
+	border-radius: 6px;
+	cursor: pointer;
+}
+
+#menubar .mb:hover,
+#menubar .mb.on {
+	background: var(--hover-acc);
+}
+
+#mbpanel {
+	top: 30px;
 }
 
 /* list of unsaved edits, anchored under the "changes" chip */

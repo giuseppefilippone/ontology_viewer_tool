@@ -225,9 +225,9 @@ def api_ui_config(q):
 def ui_config_save(c, p):
     """Merge the allowed keys of the payload into data/ui_config.json.
 
-    Payload keys taken into account: tab_order, entity_tab_order, count_annotations,
-    sidebar_width, byclass_width, ent_tab ({entity kind: active tab of the entity view}); anything
-    else is ignored.  ``c`` is None (``NO_CONNECTION``).
+    Payload keys taken into account: tab_order, entity_tab_order, hidden_tabs (main tabs hidden
+    from the Window menu), count_annotations, sidebar_width, byclass_width, ent_tab ({entity kind:
+    active tab of the entity view}); anything else is ignored.  ``c`` is None (``NO_CONNECTION``).
     Side effect: the file is rewritten.  Returns the complete configuration after the merge.
     """
     cfg = api_ui_config({})
@@ -235,7 +235,7 @@ def ui_config_save(c, p):
         {
             k: v
             for k, v in p.items()
-            if k in ("tab_order", "entity_tab_order", "count_annotations", "sidebar_width", "byclass_width", "ent_tab")
+            if k in ("tab_order", "entity_tab_order", "hidden_tabs", "count_annotations", "sidebar_width", "byclass_width", "ent_tab")
         }
     )
     json.dump(cfg, open(config.UI_CONFIG, "w"), indent=1)

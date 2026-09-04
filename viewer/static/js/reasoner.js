@@ -56,7 +56,7 @@ function renderReasoner() {
     <div style="margin-top:10px"><button class="ibtn primary" style="margin:0" onclick="runClassic()" title="Check consistency and compute the unsatisfiable classes, inferred subclasses and types of the selected individuals with HermiT or Pellet (crisp: fuzzy constructs ignored)">${ic('play')} Run classic reasoner</button> <span id="rcstatus" class="dt"></span></div>
     <div id="rcres" style="margin-top:10px"></div>
   </div></div>
-  <div class="card" id="infcard" style="max-width:none"></div>
+  <div class="card" id="infcard" style="max-width:none;margin-top:14px"></div>
   <div class="card" style="max-width:none"><h2>Reasoner memory</h2>
     <div class="dt" style="margin:4px 0 8px">Every run writes a temporary KB (OWL, FDL, logs) under <code>data/reasoner_work/</code>; nothing is deleted automatically.</div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span id="rwork" class="dt">…</span>
@@ -80,7 +80,9 @@ function renderReasoner() {
  */
 function loadReasonerWork() {
 	return api('/api/reasoner/work', {}).then((w) => {
-		$('#rwork').textContent = `${w.runs} runs · ${w.files} files · ${fmtBytes(w.bytes)}`;
+		const el = $('#rwork'); // absent until the Reasoner tab is first rendered (Tools menu calls too)
+		if (el) el.textContent = `${w.runs} runs · ${w.files} files · ${fmtBytes(w.bytes)}`;
+		return w;
 	});
 }
 /**
@@ -94,7 +96,9 @@ function clearReasonerWork() {
 	post('/api/reasoner/clear', {}).then((r) =>
 		// wait for the refreshed size before appending, or the GET result would overwrite the suffix
 		loadReasonerWork().then(() => {
-			$('#rwork').textContent += ` (freed ${fmtBytes(r.cleared.bytes)})`;
+			const el = $('#rwork');
+			if (el) el.textContent += ` (freed ${fmtBytes(r.cleared.bytes)})`;
+			else alert(`Reasoner memory cleared (freed ${fmtBytes(r.cleared.bytes)})`);
 		})
 	);
 }

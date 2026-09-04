@@ -18,7 +18,7 @@ import sys
 
 from ontoviewer import config
 
-JS_ORDER = ["core", "entities", "axioms", "graphs", "query", "reasoner", "inference", "main"]  # load order (main last)
+JS_ORDER = ["core", "entities", "axioms", "graphs", "query", "reasoner", "inference", "menubar", "main"]  # load order (main last)
 JS_DIR = config.STATIC_DIR / "js"
 BUNDLE = config.STATIC_DIR / "app.min.js"
 NODE_BIN = config.VIEWER_DIR / "node_modules" / ".bin"

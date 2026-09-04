@@ -64,12 +64,12 @@ function infChip(running) {
 		c.textContent = `Inferred: ${infEngineName()} ✓`;
 		c.className = 'chip ' + (INF.tbox.stale ? 'warn' : 'ok');
 		c.title = INF.tbox.stale
-			? 'The index changed since the classification: restart it in the Reasoner tab'
+			? 'The index changed since the classification: restart the reasoner (Reasoner menu)'
 			: `Inferred view active (${infEngineName()}, ${INF.tbox.when}): open the Reasoner tab`;
 	} else {
 		c.textContent = 'inferred: none';
 		c.className = 'chip';
-		c.title = 'No inferred view: start one in the Reasoner tab';
+		c.title = 'No inferred view: start one from the Reasoner menu';
 	}
 }
 /**
@@ -122,13 +122,50 @@ function infRefreshPages() {
 
 // ---------- Reasoner tab card ----------
 /** "Start" button: POST /api/inference/run {engine} then poll the status. @returns {void} */
-function infStart() {
-	const engine = $('#infeng').value;
-	$('#infstatus').textContent = 'starting…';
+function infStart(engine) {
+	// engine: explicit (reasoner menu) or the card select, else the last run / HermiT
+	engine = engine || ($('#infeng') && $('#infeng').value) || (INF.tbox && INF.tbox.engine) || 'hermit';
+	INF.engine = engine;
+	if ($('#infstatus')) $('#infstatus').textContent = 'starting…';
 	post('/api/inference/run', { engine }).then((r) => {
-		if (!r.started) $('#infstatus').textContent = r.reason || 'not started';
+		if (!r.started && $('#infstatus')) $('#infstatus').textContent = r.reason || 'not started';
 		infPoll();
 	});
+}
+/**
+ * Body of the Reasoner menu (Protégé-like): engine radios, start / stop, status, inferred-view shortcuts.
+ * Rendered into the menu bar's Reasoner panel (menubar.js).
+ * @returns {string} HTML of the entries.
+ */
+function rmenuBody() {
+	const t = INF.tbox;
+	const eng = INF.engine || (t && t.engine) || 'hermit';
+	INF.engine = eng; // so "Start reasoner" runs the engine shown checked even if the radios are untouched
+	const radio = (v, label) =>
+		`<label class="rmi"><input type="radio" name="rmeng" value="${v}" ${eng === v ? 'checked' : ''}
+			onchange="INF.engine=this.value"> ${label}</label>`;
+	return (
+		`<div class="rmh">Engine</div>` +
+		radio('hermit', 'HermiT') +
+		radio('pellet', 'Pellet') +
+		`<div class="rms"></div>
+		<div class="rmi" onclick="menusClose(); infStart(INF.engine)">${ic('play')} Start reasoner</div>
+		<div class="rmi ${t ? '' : 'off'}" onclick="if(${!!t}){menusClose(); infStop();}">${ic('close')} Stop and discard</div>
+		<div class="rms"></div>
+		<div class="rmi" onclick="menusClose(); document.querySelector('#maintabs [data-mt=reasoner]').click()">${ic('next')} Open the Inferred view…</div>
+		<div class="rmi ${t ? '' : 'off'}" onclick="if(${!!t}){menusClose(); rmenuInferredTree();}">${ic('next')} Inferred class hierarchy</div>
+		<div class="rmh">${t ? `${infEngineName()} · ${t.seconds}s · ${esc(t.when)}${t.stale ? ' · stale' : ''}` : 'no inferred result'}</div>`
+	);
+}
+/** Menu entry "Inferred class hierarchy": Entities tab, Classes sidebar, inferred view (Protégé's Class hierarchy (inferred)). */
+function rmenuInferredTree() {
+	document.querySelector('#maintabs [data-mt=entities]').click();
+	document.querySelector('#tabs [data-tab=tree]').click();
+	const v = $('#viewsel');
+	if (v && v.value !== 'inferred') {
+		v.value = 'inferred';
+		viewChanged();
+	}
 }
 /** "Stop" button: POST /api/inference/stop (drops the result), then refresh chip / select / card / pages. @returns {void} */
 function infStop() {
@@ -156,6 +193,24 @@ function infCardDraw() {
 		const eng = infEngineName();
 		h += `<div style="margin-top:10px"><b>${eng}</b> · ${t.seconds}s · ${esc(t.when)} · KB: ${t.n_classes} classes, ${t.n_properties} properties from ${(t.kb.schema_files || []).join(', ')}${t.stale ? ' <span class="chip warn">index changed since the run</span>' : ''}</div>
       <div class="dt" style="margin-top:6px">inferred subclass axioms: <b>${c.subclass}</b> · equivalences: <b>${c.equivalent}</b> · unsatisfiable classes: <b>${c.unsatisfiable}</b> · property axioms: <b>${c.properties}</b></div>`;
+		if (t.axioms.length) {
+			// full list of the inferred axioms: subject ⊑/≡ object, both ends clickable
+			const sym = (p) => (p.endsWith('subClassOf') || p.endsWith('subPropertyOf') ? '⊑' : '≡');
+			// like entLink, but through openEntity: from the Reasoner tab the click must switch to Entities first
+			const node = (i, kind) => {
+				const v = t.nodes[i] || { iri: i, name: short(i), kind };
+				const lbl = v.label && v.label !== v.name ? ` <span class="dt">(${esc(v.label)})</span>` : '';
+				return `${dot(v.kind, v.fuzzy)}<a class="ent" onclick="openEntity('${esc(v.iri)}')">${esc(v.name)}</a>${lbl}`;
+			};
+			const rows = t.axioms
+				.map((a) => {
+					const kind = a.p.endsWith('PropertyOf') || a.p.endsWith('equivalentProperty') ? 'objprop' : 'class';
+					return `<div style="padding:2px 0">${node(a.s, kind)} <span class="dim">${sym(a.p)}</span> ${node(a.o, kind)}</div>`;
+				})
+				.join('');
+			h += `<details style="margin-top:6px"><summary class="dt" style="cursor:pointer" title="Every inferred subclass / sub-property / equivalence axiom of the diff; click an entity to open its page">Show the ${t.axioms.length} inferred axiom${t.axioms.length === 1 ? '' : 's'}</summary>
+        <div style="max-height:280px;overflow:auto;margin:6px 0 0 4px;padding:4px 0 4px 4px">${rows}</div></details>`;
+		}
 		const unsat = Object.keys(t.classes).filter((i) => t.classes[i].unsatisfiable);
 		h += `<div style="margin-top:6px"><b>Unsatisfiable classes:</b> ${
 			unsat.length

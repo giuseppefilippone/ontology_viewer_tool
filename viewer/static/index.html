@@ -11,8 +11,17 @@
 <body>
     <header>
         <h1>Ontology Viewer</h1>
-        <button class="ibtn" style="margin:0" onclick="openWorkspace()"
-                title="Open another ontology (index built on the fly)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg> Open</button>
+        <!-- Protégé-like menu bar; panels built by menubar.js (the Reasoner one shared with the header chip) -->
+        <nav id="menubar">
+            <button class="mb" data-menu="file" onclick="mbToggle(this)">File</button>
+            <button class="mb" data-menu="edit" onclick="mbToggle(this)">Edit</button>
+            <button class="mb" data-menu="view" onclick="mbToggle(this)">View</button>
+            <button class="mb" data-menu="reasoner" onclick="mbToggle(this)">Reasoner</button>
+            <button class="mb" data-menu="tools" onclick="mbToggle(this)">Tools</button>
+            <button class="mb" data-menu="window" onclick="mbToggle(this)">Window</button>
+            <button class="mb" data-menu="help" onclick="mbToggle(this)">Help</button>
+            <div id="mbpanel" class="dmenu" hidden></div>
+        </nav>
         <div id="globalsearch">
             <input id="gs"
                    placeholder="Search the whole ontology (⌘K)… e.g. Lithuania_2000, poverty, hasValue" aria-label="Search the whole ontology">
@@ -20,23 +29,17 @@
         </div>
         <div id="stats">…</div>
         <div id="changes">
-            <span id="chchip" class="chip" style="cursor:pointer" onclick="toggleChanges()" title="Pending changes not yet written to the files: click to list them">changes: 0</span>
-            <button id="savebtn" class="ibtn" style="display:none" onclick="saveChanges()"
-                    title="Write the pending changes to the .owl files (a .bak backup of each file is kept) and rebuild the index"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg> Save</button>
-            <button id="discardbtn" class="ibtn danger" style="display:none" onclick="discardChanges()"
-                    title="Drop every pending change: the files are not touched and the views are reloaded">Discard</button>
+            <span id="chchip" class="chip chipmenu" onclick="toggleChanges()" title="Pending changes not yet written to the files: click to list them (save / discard from the File menu)"><span id="chchiptxt">changes: 0</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg></span>
             <div id="chlist"></div>
         </div>
         <div id="indexmenu">
             <span id="ixchip" class="chip">index…</span>
             <!-- Build / Update / Retry: text and tooltip set by ixRefresh (core.js) according to the index state -->
             <button id="ixbtn" style="display:none" title="Build or update the search index"></button>
-            <!-- inferred view (classical reasoner): state chip, opens the Reasoner tab -->
-            <span id="infchip" class="chip" style="cursor:pointer" title="Inferred view: open the Reasoner tab"
+            <!-- inferred-view status; the reasoner is driven from the Reasoner menu of the menu bar -->
+            <span id="infchip" class="chip" style="cursor:pointer" title="No inferred view: start one from the Reasoner menu"
                   onclick="document.querySelector('#maintabs [data-mt=reasoner]').click()">inferred: none</span>
         </div>
-        <button id="themebtn" class="iconbtn" onclick="toggleTheme()" title="Switch light / dark theme" aria-label="Switch theme"></button>
-        <button id="stopbtn" class="iconbtn" onclick="stopServer()" title="Stop the Ontology Viewer server" aria-label="Stop the server"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3h-2v10h2V3zm4.83 2.17-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.41L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/></svg></button>
     </header>
     <div id="modal">
         <div class="box" id="modalbox"></div>
@@ -48,8 +51,7 @@
     <div id="ontbar">
         <span class="dt">Active ontology</span>
         <select id="ontsel" aria-label="Active ontology"></select>
-        <button class="ibtn" onclick="removeFromIndex()"
-                title="Remove this module from the index and the workspace (the .owl file is not touched); rebuild the index to add it back"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg> Remove from index</button>
+        <!-- removal of the active module: File menu → Remove active ontology from index -->
     </div>
     <nav id="maintabs">
         <button data-mt="ontology" class="on" title="Header, imports, prefixes and metrics of the active ontology (CSV / LaTeX / PDF export)">Ontology info</button>

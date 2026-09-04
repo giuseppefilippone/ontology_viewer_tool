@@ -48,6 +48,16 @@ api('/api/ui_config', {}).then((cfg) => {
 	if (cfg.sidebar_width) $('#sidebar').style.width = cfg.sidebar_width + 'px';
 	applyTabOrder($('#maintabs'), cfg.tab_order, 'mt');
 	applyTabOrder($('#tabs'), cfg.entity_tab_order, 'tab');
+	// tabs hidden from the Window menu; if the active one is hidden, fall back to the first visible
+	(cfg.hidden_tabs || []).forEach((k) => {
+		const b = document.querySelector(`#maintabs [data-mt=${k}]`);
+		if (b) b.style.display = 'none';
+	});
+	const on = document.querySelector('#maintabs button.on');
+	if (on && on.style.display === 'none') {
+		const v = [...document.querySelectorAll('#maintabs [data-mt]')].find((b) => b.style.display !== 'none');
+		if (v) v.click();
+	}
 	makeSortable($('#maintabs'), 'tab_order');
 	makeSortable($('#tabs'), 'entity_tab_order');
 	fitSidebar();
@@ -141,3 +151,4 @@ window.addEventListener('error', (e) => {
 	if (d && d.innerHTML.includes('empty')) d.innerHTML = '<div class="err">JS error: ' + esc(e.message) + '</div>';
 	console.error('JSERR', e.message, e.lineno);
 });
+

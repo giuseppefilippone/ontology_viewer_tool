@@ -25,7 +25,7 @@
  * Uses from core.js: $, esc, api, dot, entLink, KC, KCF, KL, selIri, listKind, loadList, scopeGraph,
  * ixRefresh, ixWasRunning; from axioms.js: ontoData, activeOnt, renderOntology; from query.js: attachAutocomplete.
  *
- * DOM ids owned: #modal, #modalbox, #ferr, #fok (modal form); #chchip, #chlist, #savebtn, #discardbtn
+ * DOM ids owned: #modal, #modalbox, #ferr, #fok (modal form); #chchip, #chlist
  * (pending changes); #detail, #etabs, #instances, #usage (entity view); #fzprev, #fzval, #fmprev, #fmval, #fzrows
  * (fuzzy forms, inside #modalbox).
  */
@@ -1288,17 +1288,17 @@ function newEntityPlain(kind) {
 // ---------- editing: pending changes ----------
 /**
  * Refresh the pending-changes widget in the header: GET /api/changes ({changes:[{op,graph,s,p,o,is_lit}]}).
- * Updates the #chchip counter (class "dirty" when > 0), shows/hides #savebtn and #discardbtn, lists the changes in #chlist.
+ * Updates the #chchip counter (class "dirty" when > 0) and CHN, lists the changes in #chlist.
  * @returns {void}
  */
+let CHN = 0; // pending-changes count, kept current by refreshChanges (enables Save / Discard in the File menu)
 function refreshChanges() {
 	api('/api/changes', {}).then((d) => {
 		const n = d.changes.length,
 			chip = $('#chchip');
-		chip.textContent = 'changes: ' + n;
-		chip.className = 'chip' + (n ? ' dirty' : '');
-		$('#savebtn').style.display = n ? '' : 'none';
-		$('#discardbtn').style.display = n ? '' : 'none';
+		CHN = n; // read by the File menu (menubar.js) to enable Save / Discard
+		$('#chchiptxt').textContent = 'changes: ' + n; // the caret icon next to it must survive the update
+		chip.className = 'chip chipmenu' + (n ? ' dirty' : '');
 		$('#chlist').innerHTML = n
 			? d.changes
 					.map(
@@ -1321,11 +1321,8 @@ function toggleChanges() {
  */
 function saveChanges() {
 	if (!confirm('Write the changes to the .owl files? (automatic .bak backup; the index is then rebuilt)')) return;
-	$('#savebtn').disabled = true;
-	$('#savebtn').textContent = 'saving…';
+	$('#chchiptxt').textContent = 'saving…';
 	post('/api/save', {}).then((r) => {
-		$('#savebtn').disabled = false;
-		$('#savebtn').innerHTML = ic('save') + ' Save';
 		if (r.error) {
 			alert('Save error: ' + r.error);
 			return;
