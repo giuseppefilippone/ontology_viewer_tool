@@ -1,0 +1,18 @@
+{
+  "name": "viewer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "python3 -m ontoviewer.bundle --force",
+    "format": "python3 -m ontoviewer.bundle --format"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "prettier": "^3.9.6",
+    "terser": "^5.50.0"
+  }
+}

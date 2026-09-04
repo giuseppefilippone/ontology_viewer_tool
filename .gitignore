@@ -1,0 +1,48 @@
+# ---- internal pipeline scripts (build of the SDF ontology: they need private
+# ---- source data and are not needed to install or run the viewer) ----
+fetch_all.py
+regen_live.py
+verify_tables.py
+extract_metadata.py
+scan_annotations.py
+gen_suffix_map.py
+gen_unit_map.py
+build_ontology.py
+build_territories.py
+build_subjects.py
+materialize_degrees.py
+verify_degrees.py
+check_fdl_consistency.py
+fix_owa_degrees.py
+rename_fuzzy_classes.py
+rematerialize_chain.sh
+
+# ---- local working notes (project layout and request log, for future work
+# ---- on the library: not part of the published repository) ----
+PROJECT_LAYOUT.md
+TASK_TRACKING.md
+PLUGIN_ARCHITECTURE_PLAN.md
+
+# ---- per-user and generated data (recreated by the scripts / the app) ----
+
+# runtime data of the Ontology Viewer: SQLite indexes, workspaces, uploads,
+# exports, reasoner scratch dirs, logs, pid files
+viewer/data/
+
+# outputs of the pipeline scripts (fetched statistics, generated maps, logs)
+output/
+
+# npm packages used only to rebuild the minified JS bundle
+viewer/node_modules/
+
+# python
+__pycache__/
+*.pyc
+
+# editor backups written next to the ontology files
+*.bak
+
+# misc
+*.log
+*.pid
+.DS_Store

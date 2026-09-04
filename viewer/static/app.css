@@ -1,0 +1,2001 @@
+/* app.css — stylesheet of the Ontology Viewer (static/index.html + static/js/*.js).
+   Single light theme, Material-inspired flat look. Theming variables on :root:
+     --bg        page background            --panel  cards / header / sidebar background
+     --line      borders and separators     --txt    main text        --dim  secondary text
+     --acc       accent (active tab, links, primary buttons)
+     --class, --objprop, --dataprop, --annprop, --datatype, --individual, --ontology
+                 one colour per entity kind (used by the .kind dots, .panel headings; see KC in core.js)
+   Layout: body is a full-height flex column: header → #maintabs → one visible tab container
+   (#tab-* divs, or <main id="tab-entities"> = #sidebar | #sbresize | #detail).
+   Sections below: variables/reset, header & global search, entities layout (sidebar, sub-tabs, lists,
+   trees), cards & entity detail, chips & index bar, main tabs, small buttons, Material entity panels
+   (tree rows, reasoner query rows, graph toolbar, action icons, property rows, panels, menus),
+   modal, entity picker, pending changes, ontology cards & metrics tables. */
+
+/* ---- theming variables ---- */
+:root {
+	--bg: #f6f7f9;
+	--panel: #fff;
+	--line: #dde1e6;
+	--txt: #1c2733;
+	--dim: #66727f;
+	--acc: #3457b0;
+	--class: #b03a8c;
+	--objprop: #2166ac;
+	--dataprop: #1a7f42;
+	--annprop: #8a6d1a;
+	--datatype: #7a4bb3;
+	--individual: #b3552b;
+	--ontology: #555;
+	--line-strong: #c4c7d0; /* borders of controls and buttons */
+	--hover: #f1f3f7; /* neutral hover background */
+	--hover-acc: #eef2fb; /* accent-tinted hover background */
+	--sel: #e3ebfa; /* selected row */
+	--danger: #b3261e;
+	--radius: 6px; /* controls, buttons, small boxes */
+	--h-ctrl: 32px; /* height of every text control and button */
+	--fs-sm: 12px; /* secondary text */
+	--fs: 13.5px; /* body text of panels */
+	--line-soft: #f0f2f5; /* table row separators */
+	--ok-bg: #e7f5ec;
+	--ok-fg: #1a7f42;
+	--ok-line: #bfe4cc;
+	--warn-bg: #fdf3e3;
+	--warn-fg: #9a6b12;
+	--warn-line: #ecd9ad;
+	--run-bg: #e8eefb;
+	--run-line: #c5d4f2;
+	--danger-bg: #fdecec;
+	--danger-line: #f2c1c1;
+	--chip-on: #e8eaf6; /* selected filter chip */
+	--chip-on-line: #9fa8da;
+	--chip-on-fg: #1a237e;
+	--inf-bg: #fdf9d8; /* axioms inferred by the reasoner (pale highlight, as in ontology editors) */
+	--inf-fg: #6b5900;
+	--acc-dark: #2b4a9a; /* pressed primary button */
+	--shadow: 0 1px 2px rgba(0, 0, 0, 0.14), 0 1px 6px rgba(0, 0, 0, 0.08);
+	--mono: ui-monospace, Menlo, monospace;
+}
+
+/* dark palette: explicit choice (<html data-theme="dark">) or the system preference when nothing is chosen */
+:root[data-theme='dark'] {
+	--bg: #121417;
+	--panel: #1b1f26;
+	--line: #2c323b;
+	--line-strong: #3d4550;
+	--line-soft: #242a33;
+	--txt: #e6e9ee;
+	--dim: #9aa4b1;
+	--acc: #8ab4f8;
+	--acc-dark: #6a9cf0;
+	--hover: #232830;
+	--hover-acc: #22304a;
+	--sel: #2a3a5c;
+	--class: #d76fb6;
+	--objprop: #5b9bd5;
+	--dataprop: #4fbf7a;
+	--annprop: #d1aa3c;
+	--datatype: #a97fe0;
+	--individual: #e0825a;
+	--ontology: #aaa;
+	--ok-bg: #163524;
+	--ok-fg: #7bd3a0;
+	--ok-line: #245c3b;
+	--warn-bg: #3a2e12;
+	--warn-fg: #e8c06a;
+	--warn-line: #5c4a1e;
+	--run-bg: #1f2b46;
+	--run-line: #2f4a7a;
+	--danger: #f28b82;
+	--danger-bg: #3a1f1d;
+	--danger-line: #6b2f2a;
+	--chip-on: #2a3a5c;
+	--chip-on-line: #4a63a0;
+	--chip-on-fg: #c7d6ff;
+	--inf-bg: #3b3612;
+	--inf-fg: #e8d96a;
+	--shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 6px rgba(0, 0, 0, 0.35);
+	color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']):not([data-theme='dark']) {
+		--bg: #121417;
+		--panel: #1b1f26;
+		--line: #2c323b;
+		--line-strong: #3d4550;
+		--line-soft: #242a33;
+		--txt: #e6e9ee;
+		--dim: #9aa4b1;
+		--acc: #8ab4f8;
+		--acc-dark: #6a9cf0;
+		--hover: #232830;
+		--hover-acc: #22304a;
+		--sel: #2a3a5c;
+		--class: #d76fb6;
+		--objprop: #5b9bd5;
+		--dataprop: #4fbf7a;
+		--annprop: #d1aa3c;
+		--datatype: #a97fe0;
+		--individual: #e0825a;
+		--ontology: #aaa;
+		--ok-bg: #163524;
+		--ok-fg: #7bd3a0;
+		--ok-line: #245c3b;
+		--warn-bg: #3a2e12;
+		--warn-fg: #e8c06a;
+		--warn-line: #5c4a1e;
+		--run-bg: #1f2b46;
+		--run-line: #2f4a7a;
+		--danger: #f28b82;
+		--danger-bg: #3a1f1d;
+		--danger-line: #6b2f2a;
+		--chip-on: #2a3a5c;
+		--chip-on-line: #4a63a0;
+		--chip-on-fg: #c7d6ff;
+		--inf-bg: #3b3612;
+		--inf-fg: #e8d96a;
+		--shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 6px rgba(0, 0, 0, 0.35);
+		color-scheme: dark;
+	}
+}
+
+/* ---- reset & page layout ---- */
+* {
+	box-sizing: border-box;
+	margin: 0;
+}
+
+/* full-height flex column: header, main tabs, then the visible tab fills the rest */
+body {
+	font:
+		14px/1.45 -apple-system,
+		'Segoe UI',
+		Roboto,
+		sans-serif;
+	background: var(--bg);
+	color: var(--txt);
+	height: 100vh;
+	display: flex;
+	flex-direction: column;
+}
+
+/* ---- form controls: one style everywhere (height --h-ctrl, border --line-strong, radius --radius) ---- */
+select,
+textarea,
+input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='range']) {
+	font: inherit;
+	font-size: 13px;
+	color: var(--txt);
+	background: var(--panel);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	height: var(--h-ctrl);
+	padding: 0 10px;
+	box-sizing: border-box;
+	max-width: 100%;
+}
+
+textarea {
+	height: auto;
+	padding: 8px 10px;
+	line-height: 1.4;
+	resize: vertical;
+}
+
+select {
+	padding-right: 26px;
+	appearance: none;
+	background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2366727f'><path d='M7 10l5 5 5-5z'/></svg>");
+	background-repeat: no-repeat;
+	background-position: right 6px center;
+	background-size: 16px;
+}
+
+select:focus-visible,
+textarea:focus-visible,
+input:focus-visible,
+button:focus-visible {
+	outline: 2px solid rgba(52, 87, 176, 0.45);
+	outline-offset: 1px;
+}
+
+input::placeholder,
+textarea::placeholder {
+	color: #9aa3ad;
+}
+
+/* ---- header (title, Open button, global search, stats, changes, index menu) ---- */
+header {
+	padding: 8px 14px;
+	background: var(--panel);
+	border-bottom: 1px solid var(--line);
+	display: flex;
+	gap: 14px;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+header h1 {
+	font-size: 16px;
+	white-space: nowrap;
+}
+
+#stats {
+	color: var(--dim);
+	font-size: 12px;
+}
+
+/* ---- global search box and its dropdown ---- */
+/* relative: anchors the absolutely positioned #searchresults */
+#globalsearch {
+	flex: 1;
+	min-width: 220px;
+	position: relative;
+}
+
+#globalsearch input {
+	width: 100%;
+	font-size: 14px;
+}
+
+/* results dropdown under the input; shown by core.js (display:block) */
+#searchresults {
+	position: absolute;
+	top: 34px;
+	left: 0;
+	right: 0;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	max-height: 50vh;
+	overflow: auto;
+	z-index: 10;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+	display: none;
+}
+
+/* ---- Entities tab layout: sidebar | resize handle | detail ---- */
+/* min-height:0 lets the flex children scroll instead of growing the page */
+main {
+	flex: 1;
+	display: flex;
+	min-height: 0;
+}
+
+/* width is user-resizable (core.js) and persisted in ui_config.json */
+#sidebar {
+	width: 390px;
+	min-width: 220px;
+	max-width: 80vw;
+	background: var(--panel);
+	border-right: 1px solid var(--line);
+	display: flex;
+	flex-direction: column;
+	flex-shrink: 0;
+}
+
+/* invisible 6px drag handle overlapping the sidebar border */
+#sbresize,
+.vresize {
+	width: 6px;
+	cursor: col-resize;
+	background: transparent;
+	flex-shrink: 0;
+	margin-left: -3px;
+	z-index: 5;
+}
+
+#sbresize:hover,
+#sbresize.on,
+.vresize:hover,
+.vresize.on {
+	background: rgba(63, 81, 181, 0.25);
+}
+
+.tree .row .lbl,
+.tree .row,
+#list .item,
+.treebox .item {
+	white-space: nowrap;
+}
+
+.tree .row .lbl {
+	overflow: visible;
+}
+
+/* ---- sidebar list filter, entity list, pager ---- */
+#listsearch,
+.listsearch {
+	padding: 8px;
+	border-bottom: 1px solid var(--line);
+}
+
+#listsearch input,
+.listsearch input {
+	width: 100%;
+	height: 30px;
+}
+
+#list,
+.treebox {
+	flex: 1;
+	overflow: auto;
+	padding: 4px 0;
+}
+
+/* scrolls in both directions: labels never wrap */
+/* .item = one row of the entity list, of the search dropdown and of the Fuzzy tab */
+.item {
+	padding: 3px 12px;
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.item:hover {
+	background: var(--hover);
+}
+
+.item.sel {
+	background: var(--sel);
+}
+
+/* coloured square marking the entity kind (background set inline by dot() in core.js) */
+.kind {
+	display: inline-block;
+	width: 14px;
+	height: 14px;
+	border-radius: 4px;
+	margin-right: 7px;
+	vertical-align: -2px;
+}
+
+.pager {
+	padding: 8px 12px;
+	color: var(--dim);
+	font-size: 12px;
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	border-top: 1px solid var(--line);
+}
+
+.pager button:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+/* ---- hierarchy tree (classes / properties) ---- */
+.tree ul {
+	list-style: none;
+	padding-left: 18px;
+}
+
+.tree > ul {
+	padding: 4px 8px;
+}
+
+/* expand/collapse toggle (▸ / ▾); fixed width keeps leaves aligned with parents */
+.tree .tg {
+	cursor: pointer;
+	color: var(--dim);
+	display: inline-block;
+	width: 14px;
+}
+
+/* instance count next to a class */
+.tree .cnt {
+	color: var(--dim);
+	font-size: 11px;
+}
+
+/* ---- entity detail pane and cards ---- */
+#detail {
+	flex: 1;
+	overflow: auto;
+	padding: 18px 26px;
+}
+
+/* generic white card used by every tab (max-width overridden inline where full width is wanted) */
+.card {
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	padding: 16px 20px;
+	margin-bottom: 14px;
+	max-width: 1100px;
+}
+
+.card h2 {
+	font-size: 16px;
+	margin-bottom: 2px;
+	word-break: break-word;
+}
+
+.iri {
+	color: var(--dim);
+	font-size: 12px;
+	word-break: break-all;
+}
+
+/* kind badge in the entity header (colour set inline) */
+.badge {
+	display: inline-block;
+	font-size: 11px;
+	padding: 1px 8px;
+	border-radius: 10px;
+	color: #fff;
+	margin-right: 6px;
+	vertical-align: 2px;
+}
+
+/* module pill (also used for the selected individuals of the reasoner) */
+.mod {
+	display: inline-block;
+	font-size: 10.5px;
+	color: var(--dim);
+	background: var(--hover);
+	border-radius: 8px;
+	padding: 0 7px;
+	margin-left: 6px;
+	vertical-align: 1px;
+}
+
+/* section inside a card: small uppercase heading */
+.sect {
+	margin-top: 14px;
+}
+
+.sect h3 {
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	color: var(--dim);
+	margin-bottom: 6px;
+}
+
+/* ---- property / axiom tables ---- */
+table.props {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+table.props td {
+	padding: 4px 10px 4px 0;
+	vertical-align: top;
+	border-top: 1px solid var(--line-soft);
+}
+
+/* predicate column */
+td.pred {
+	color: var(--acc);
+	white-space: nowrap;
+	width: 220px;
+	font-weight: 600;
+}
+
+/* ---- inline text helpers ---- */
+/* entity link (dotted underline, no href: navigation via onclick) */
+a.ent {
+	color: var(--txt);
+	text-decoration: none;
+	border-bottom: 1px dotted transparent;
+	cursor: pointer;
+}
+
+a.ent:hover {
+	color: var(--acc);
+	border-bottom-color: var(--acc);
+}
+
+/* literal value, line breaks preserved */
+.lit {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* clamped literal (about 4 lines) expandable with .expand */
+.lit.clamp {
+	max-height: 5.8em;
+	overflow: hidden;
+	display: block;
+	position: relative;
+}
+
+/* small accent-coloured clickable text (expand, prev/next, add…) */
+.expand {
+	color: var(--acc);
+	cursor: pointer;
+	font-size: 12px;
+}
+
+/* dimmed small text (descriptions, hints, secondary info) */
+.dt {
+	color: var(--dim);
+	font-size: var(--fs-sm);
+}
+
+/* placeholder shown in an empty pane */
+.empty {
+	color: var(--dim);
+	padding: 40px;
+	text-align: center;
+}
+
+/* count next to a heading */
+.count {
+	color: var(--dim);
+	font-weight: 400;
+	font-size: 13px;
+}
+
+/* ---- header chips (index status, pending changes) ---- */
+.chip {
+	font-size: 12px;
+	border-radius: 10px;
+	padding: 2px 10px;
+	border: 1px solid var(--line);
+	color: var(--dim);
+}
+
+.chip.ok {
+	background: var(--ok-bg);
+	color: var(--ok-fg);
+	border-color: var(--ok-line);
+}
+
+.chip.warn {
+	background: var(--warn-bg);
+	color: var(--warn-fg);
+	border-color: var(--warn-line);
+}
+
+.chip.run {
+	background: var(--run-bg);
+	color: var(--acc);
+	border-color: var(--run-line);
+}
+
+/* ---- index menu and indexing progress bar ---- */
+#indexmenu {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+/* yellow bar under the header while the index is being (re)built */
+#ixbar {
+	background: var(--warn-bg);
+	border-bottom: 1px solid var(--warn-line);
+	padding: 6px 14px;
+	font-size: 13px;
+}
+
+#ixlog {
+	font:
+		11px/1.4 ui-monospace,
+		monospace;
+	color: var(--dim);
+	max-height: 90px;
+	overflow: auto;
+	margin-top: 4px;
+	white-space: pre-wrap;
+}
+
+/* ---- active-ontology bar between the header and the main tabs ---- */
+#ontbar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 14px;
+	background: var(--panel);
+	border-bottom: 1px solid var(--line);
+}
+
+#ontbar select {
+	height: 28px;
+	font-size: 12.5px;
+	max-width: 60vw;
+}
+
+/* ---- tabs: ONE component for the main tabs (#maintabs), the Entities sub-tabs (#tabs), the Active Ontology
+   bottom tabs (#btabs / #otabs) and any bar with class .tabs (the entity view's #etabs): text tab + 2px accent
+   indicator, scrollable, never wrapping ---- */
+#maintabs,
+#tabs,
+#btabs,
+#otabs,
+.tabs {
+	display: flex;
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	scrollbar-width: thin;
+	background: var(--panel);
+	border-bottom: 1px solid var(--line);
+}
+
+#maintabs {
+	padding: 0 10px;
+}
+
+#maintabs button,
+#tabs button,
+#btabs button,
+#otabs button,
+.tabs button {
+	flex: 0 0 auto;
+	height: 42px;
+	padding: 0 16px;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	background: none;
+	color: var(--dim);
+	font: 500 13.5px/1 inherit;
+	letter-spacing: 0.2px;
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background 0.15s,
+		color 0.15s;
+}
+
+#maintabs button:hover,
+#tabs button:hover,
+#btabs button:hover,
+#otabs button:hover,
+.tabs button:hover {
+	background: var(--hover);
+	color: var(--txt);
+}
+
+#maintabs button.on,
+#tabs button.on,
+#btabs button.on,
+#otabs button.on,
+.tabs button.on {
+	color: var(--acc);
+	border-bottom-color: var(--acc);
+	font-weight: 600;
+}
+
+/* the secondary bars are a little lower */
+#tabs button,
+#btabs button,
+#otabs button,
+.tabs button {
+	height: 36px;
+	padding: 0 12px;
+	font-size: 12.5px;
+}
+
+#btabs {
+	margin: -6px -8px 8px;
+	padding: 0 4px;
+}
+
+/* sub-tabs of the Ontology info tab: full-width bar above the cards */
+#otabs {
+	margin: -18px -26px 16px;
+	padding: 0 16px;
+}
+
+/* metric groups side by side */
+.mgrid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+	gap: 4px 28px;
+	align-items: start;
+}
+
+.mgrid .sect {
+	margin-top: 8px;
+}
+
+#tab-ontology {
+	flex: 1;
+	overflow: auto;
+	padding: 18px 26px;
+	background: var(--bg);
+}
+
+/* ---- buttons: .btn (32px) and the small .ibtn (28px) share one look; .primary = contained accent,
+   .danger = red on hover; the same rules cover the index button, the pager and the modal actions ---- */
+.btn,
+.ibtn,
+#ixbtn,
+.pager button,
+#modal .actions button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	height: var(--h-ctrl);
+	padding: 0 12px;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	background: var(--panel);
+	color: var(--txt);
+	font: inherit;
+	font-size: var(--fs);
+	font-weight: 500;
+	line-height: 1;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+/* small variant */
+.ibtn {
+	height: 28px;
+	padding: 0 10px;
+	font-size: 12.5px;
+	margin-left: 6px;
+}
+
+.btn:disabled,
+.ibtn:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.btn:hover:not(:disabled),
+.ibtn:hover:not(:disabled),
+#ixbtn:hover,
+.pager button:hover:not(:disabled),
+#modal .actions button:hover {
+	background: var(--hover-acc);
+	border-color: var(--acc);
+}
+
+.btn.primary,
+.ibtn.primary,
+#modal .actions button.primary {
+	background: var(--acc);
+	color: #fff;
+	border-color: var(--acc);
+}
+
+.btn.primary:hover,
+.ibtn.primary:hover,
+#modal .actions button.primary:hover {
+	background: var(--acc-dark);
+	border-color: var(--acc-dark);
+}
+
+.ibtn.danger,
+.btn.danger {
+	color: var(--danger);
+}
+
+.ibtn.danger:hover,
+.btn.danger:hover {
+	background: var(--danger-bg);
+	border-color: var(--danger);
+}
+
+/* inline SVG icon inside buttons, tabs and links (ic() in core.js) */
+.ic {
+	width: 16px;
+	height: 16px;
+	fill: currentColor;
+	flex-shrink: 0;
+}
+
+.ibtn .ic {
+	width: 15px;
+	height: 15px;
+}
+
+/* ✕ remove glyph next to a value */
+.rm {
+	cursor: pointer;
+	color: var(--dim);
+	opacity: 0.6;
+	margin-left: 6px;
+	font-size: 12px;
+}
+
+.rm:hover {
+	color: var(--danger);
+}
+
+/* Material-style entity panels: elevated cards, icon buttons with centred glyphs */
+/* ---- kind dot of a defined class (shows ≡) ---- */
+.kind.def {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	color: #fff;
+	font-size: 8px;
+	font-weight: 700;
+	line-height: 1;
+	vertical-align: -2px;
+}
+
+/* ---- tree rows (flex: toggle | dot | label) ---- */
+.tree .row {
+	display: flex;
+	align-items: center;
+	gap: 0;
+	line-height: 1.5;
+	padding: 1px 0;
+}
+
+.tree .row .kind {
+	flex-shrink: 0;
+	margin-right: 6px;
+	vertical-align: 0;
+}
+
+.tree .row .tg {
+	flex-shrink: 0;
+}
+
+.tree .row .lbl {
+	flex: 1;
+	min-width: 0;
+}
+
+/* ---- reasoner query rows: argument pickers share the row width ---- */
+.rq .picker {
+	flex: 1;
+	min-width: 160px;
+}
+
+.rq .picker input {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+/* ---- graph toolbar (.gbar with .ggroup groups of labelled controls) ---- */
+.gbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 18px;
+	align-items: flex-end;
+	margin-top: 10px;
+	padding: 10px 12px;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 10px;
+}
+
+.ggroup {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+}
+
+/* group caption (small uppercase) */
+.ggroup > .gcap {
+	font-size: 10.5px;
+	font-weight: 600;
+	letter-spacing: 0.6px;
+	text-transform: uppercase;
+	color: var(--dim);
+}
+
+/* row of controls of a group */
+.ggroup > .grow {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	flex-wrap: wrap;
+	min-height: 30px;
+}
+
+/* checkbox rendered as a Material filter chip */
+.gbar label.chk {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	font-size: 13px;
+	cursor: pointer;
+	padding: 3px 8px;
+	border: 1px solid var(--line-strong);
+	border-radius: 16px;
+	background: var(--panel);
+}
+
+/* selected chip (:has needs a recent browser) */
+.gbar label.chk:has(input:checked) {
+	background: var(--chip-on);
+	border-color: var(--chip-on-line);
+	color: var(--chip-on-fg);
+}
+
+/* vertical separator between groups */
+.gbar .gsep {
+	width: 1px;
+	align-self: stretch;
+	background: var(--line);
+	margin: 0 -6px;
+}
+
+.gbar .grow .picker {
+	display: inline-block;
+}
+
+/* ---- Material action icons on property rows (edit / delete / annotate) ---- */
+/* icon group, faded until the row is hovered */
+.acts {
+	white-space: nowrap;
+	margin-left: 8px;
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	opacity: 0;
+	flex-shrink: 0;
+	transition: opacity 0.12s;
+}
+
+.prow:hover .acts,
+.prow:focus-within .acts,
+.acts:has(.has) {
+	opacity: 1;
+}
+
+/* round 28px icon button */
+.act {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	color: var(--dim);
+	cursor: pointer;
+	transition: background 0.15s;
+	line-height: 0;
+}
+
+.act svg {
+	width: 18px;
+	height: 18px;
+	fill: currentColor;
+	display: block;
+}
+
+.act:hover {
+	background: var(--hover-acc);
+	color: var(--acc);
+}
+
+.act.del:hover {
+	background: var(--danger-bg);
+	color: var(--danger);
+}
+
+/* "has annotations" state of the annotate icon (filled purple) */
+.act.has {
+	background: #7a4bb3;
+	color: #fff;
+}
+
+.act.has:hover {
+	background: #5e3796;
+	color: #fff;
+}
+
+/* ---- property sections and rows inside entity panels ---- */
+.psec {
+	margin: 8px 0 2px;
+}
+
+/* section title with the round + button */
+.ptitle {
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.6px;
+	text-transform: uppercase;
+	color: var(--dim);
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 8px 0 2px;
+}
+
+/* number of rows of a section (sect() in entities.js) */
+.ptitle .pcount {
+	font-weight: 400;
+	letter-spacing: 0;
+	text-transform: none;
+	color: #8a939c;
+}
+
+/* small FAB-like "+" button */
+.plus {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 50%;
+	border: 0;
+	background: var(--acc);
+	color: #fff;
+	cursor: pointer;
+	padding: 0;
+	line-height: 0;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.plus svg {
+	width: 16px;
+	height: 16px;
+	fill: #fff;
+	display: block;
+}
+
+.plus:hover {
+	filter: brightness(1.12);
+}
+
+/* one value row: value on the left, action icons on the right */
+.prow {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 4px 4px 4px 10px;
+	border-radius: 6px;
+	font-size: 13px;
+}
+
+.prow:hover {
+	background: var(--hover);
+}
+
+.prow .val {
+	flex: 1;
+	min-width: 0;
+	word-break: break-word;
+	overflow-x: auto; /* fixed-width content (membership plots) scrolls inside the row instead of the pane */
+}
+
+/* class expression / DL text in monospace */
+.expr {
+	font-family: var(--mono);
+	font-size: 12.5px;
+}
+
+/* ---- elevated panel (entity description / annotations / usage), colour-coded heading bar ---- */
+.panel {
+	background: var(--panel);
+	border-radius: 12px;
+	margin-top: 14px;
+	box-shadow: var(--shadow);
+}
+
+.panel > h3 {
+	margin: 0;
+	padding: 12px 16px 6px;
+	font-size: 13.5px;
+	font-weight: 600;
+	color: var(--acc);
+	letter-spacing: 0.2px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* vertical bar before the title, coloured per entity kind by the .panel.<kind> rules below */
+.panel > h3::before {
+	content: '';
+	width: 4px;
+	height: 16px;
+	border-radius: 2px;
+	background: var(--acc);
+}
+
+.panel.class > h3::before {
+	background: var(--class);
+}
+
+.panel.individual > h3::before {
+	background: var(--individual);
+}
+
+.panel.objprop > h3::before {
+	background: var(--objprop);
+}
+
+.panel.dataprop > h3::before {
+	background: var(--dataprop);
+}
+
+.panel.datatype > h3::before {
+	background: var(--datatype);
+}
+
+.panel.annprop > h3::before {
+	background: var(--annprop);
+}
+
+/* entity header (name + IRI + delete), the delete button pushed to the right */
+.card h2.ehead {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+	font-size: 18px;
+}
+
+.panel .body {
+	padding: 2px 12px 12px;
+}
+
+/* ---- entity view: sticky header block (header card + #etabs tab bar joined as one card) and tab panels ---- */
+/* sticks to the top of #detail while the panels scroll; extends into the pane padding so nothing scrolls past it
+   (top = minus the pane padding: the block sticks flush with the scrollport, no strip where the content shows) */
+.esticky {
+	position: sticky;
+	top: -18px;
+	z-index: 5;
+	margin: -18px -26px 0;
+	padding: 18px 26px 0;
+	background: var(--bg);
+}
+
+.card.ehdr {
+	max-width: none;
+	margin-bottom: 0;
+	border-bottom: 0;
+	border-radius: 10px 10px 0 0;
+}
+
+#etabs {
+	padding: 0 8px;
+	border: 1px solid var(--line);
+	border-top: 0;
+	border-radius: 0 0 10px 10px;
+}
+
+/* Description tab: logical sections | Characteristics or Property assertions, single column on narrow viewports */
+.epanel.desc {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 0 14px;
+	align-items: start;
+}
+
+/* the panels of every tab are in the DOM; only the active one is visible (after .epanel.desc: same specificity) */
+.epanel[hidden],
+.epanel.desc[hidden] {
+	display: none;
+}
+
+.epanel.desc > .panel:only-child {
+	grid-column: 1 / -1;
+}
+
+@media (max-width: 1100px) {
+	.epanel.desc {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+/* a section without rows collapses to its title line with a smaller "+" */
+.psec.blank {
+	margin: 2px 0 0;
+}
+
+/* ---- inferred view (inference.js): rows / tree entries inferred by the classical reasoner ---- */
+/* a row the reasoner adds: pale highlight, "inferred" tag, assert action instead of edit / remove */
+.prow.inferred {
+	background: var(--inf-bg);
+}
+
+.prow.inferred:hover {
+	background: var(--inf-bg);
+	filter: brightness(0.97);
+}
+
+.inftag {
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.5px;
+	text-transform: uppercase;
+	color: var(--inf-fg);
+	margin-left: 8px;
+}
+
+/* tree row whose placement under its parent is inferred */
+.tree .row.inf .lbl {
+	background: var(--inf-bg);
+	border-radius: 4px;
+	padding: 0 4px;
+	margin-left: -4px;
+}
+
+.tree .row.inf .lbl a {
+	color: var(--inf-fg);
+}
+
+/* owl:Nothing root and the unsatisfiable classes under it */
+.tree .row.unsat .lbl a {
+	color: var(--danger);
+}
+
+.tree .row.unsat .kind {
+	background: var(--danger) !important;
+}
+
+/* spinner in a section title while an individual is being inferred */
+.infspin {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	border: 2px solid var(--line-strong);
+	border-top-color: var(--acc);
+	border-radius: 50%;
+	animation: infspin 0.8s linear infinite;
+}
+
+@keyframes infspin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* assert popover of an inferred row (a .menu with inline controls instead of menu entries) */
+.menu.infpop {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	padding: 8px 12px;
+	min-width: 0;
+	white-space: nowrap;
+}
+
+.menu.infpop select {
+	max-width: 220px;
+}
+
+.psec.blank .ptitle {
+	margin: 3px 0;
+	opacity: 0.8;
+}
+
+.psec.blank .plus {
+	width: 20px;
+	height: 20px;
+}
+
+.psec.blank .plus svg {
+	width: 14px;
+	height: 14px;
+}
+
+/* property characteristics checkboxes (functional, transitive, …) */
+.chars {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 18px;
+}
+
+.chars label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	margin: 4px 0;
+	cursor: pointer;
+}
+
+/* ---- entity header menu (☰ button + dropdown) ---- */
+.burger {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	border-radius: 50%;
+	cursor: pointer;
+	color: var(--dim);
+	margin-right: 4px;
+	vertical-align: middle;
+	line-height: 0;
+}
+
+.burger:hover {
+	background: var(--hover);
+}
+
+.burger svg {
+	width: 20px;
+	height: 20px;
+	fill: currentColor;
+}
+
+/* dropdown menu (positioned by JS) */
+.menu {
+	position: absolute;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+	padding: 4px 0;
+	z-index: 50;
+	min-width: 200px;
+	font-size: 13px;
+}
+
+.menu div {
+	padding: 6px 14px;
+	cursor: pointer;
+}
+
+.menu div:hover {
+	background: var(--hover-acc);
+}
+
+.menu hr {
+	border: 0;
+	border-top: 1px solid var(--line);
+	margin: 4px 0;
+}
+
+/* ---- modal dialog (forms built by openForm in entities.js) ---- */
+/* full-screen backdrop; shown with display:flex by JS */
+#modal {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.35);
+	display: none;
+	align-items: center;
+	justify-content: center;
+	z-index: 50;
+}
+
+#modal .box {
+	background: var(--panel);
+	border-radius: 10px;
+	padding: 18px 22px;
+	min-width: 460px;
+	max-width: 720px;
+	max-height: 85vh;
+	overflow: auto;
+	box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+
+#modal h3 {
+	font-size: 15px;
+	margin-bottom: 10px;
+}
+
+#modal label {
+	display: block;
+	font-size: 12px;
+	color: var(--dim);
+	margin-top: 10px;
+}
+
+#modal input,
+#modal select,
+#modal textarea {
+	width: 100%;
+	margin-top: 3px;
+}
+
+#modal .actions {
+	margin-top: 16px;
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+}
+
+/* ---- entity picker (input + suggestion dropdown, bindPicker in entities.js) ---- */
+.picker {
+	position: relative;
+}
+
+.picker .res {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 100%;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	max-height: 200px;
+	overflow: auto;
+	z-index: 5;
+	display: none;
+}
+
+.picker .res div {
+	padding: 4px 8px;
+	cursor: pointer;
+	font-size: 13px;
+}
+
+.picker .res div:hover {
+	background: var(--hover);
+}
+
+/* ---- pending changes dropdown in the header ---- */
+#changes {
+	position: relative;
+}
+
+/* list of unsaved edits, anchored under the "changes" chip */
+#chlist {
+	position: absolute;
+	right: 0;
+	top: 34px;
+	width: 520px;
+	max-height: 60vh;
+	overflow: auto;
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+	padding: 10px;
+	display: none;
+	z-index: 20;
+	font-size: 12px;
+}
+
+#chlist .ch {
+	padding: 3px 0;
+	border-bottom: 1px solid var(--line-soft);
+	word-break: break-all;
+}
+
+/* chip state when there are unsaved changes */
+.chip.dirty {
+	background: var(--danger-bg);
+	color: var(--danger);
+	border-color: var(--danger-line);
+}
+
+/* error message (forms, reasoner results) */
+.err {
+	color: var(--danger);
+	font-size: 12px;
+	margin-top: 6px;
+}
+
+/* ---- side-by-side cards (Active Ontology, Axioms statistics, Reasoner) ---- */
+.ocards {
+	display: flex;
+	gap: 14px;
+	flex-wrap: wrap;
+	align-items: flex-start;
+}
+
+.ocards .card {
+	min-width: min(380px, 100%);
+	flex: 1;
+	max-width: none; /* the columns share the whole width, no gap in the middle */
+	margin-bottom: 0;
+}
+
+/* ---- metrics tables (OWL API-style metrics, FDL statistics, reasoner results) ---- */
+table.metrics {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+table.metrics td {
+	padding: 3px 8px;
+	border-top: 1px solid var(--line-soft);
+}
+
+/* every column after the first is a right-aligned number column */
+table.metrics td:nth-child(n + 2) {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	width: 110px;
+	white-space: nowrap;
+}
+
+/* secondary line under a heading (Active Ontology tab) */
+.subm {
+	color: var(--dim);
+	font-size: 12px;
+}
+
+/* ---- side panel reused outside the Entities sidebar (Individuals by class): same filter box + tree ---- */
+.sidepanel {
+	flex-shrink: 0;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	max-height: 70vh;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--panel);
+}
+
+.treebox .tree .row.sel {
+	background: var(--sel, #e8eaf6);
+}
+
+/* ---- empty-state hint inside a result area ---- */
+.hint {
+	color: var(--dim);
+	font-size: 13px;
+	padding: 14px 16px;
+	border: 1px dashed var(--line-strong);
+	border-radius: 8px;
+	background: var(--hover);
+	line-height: 1.5;
+}
+
+/* ---- header: round icon button (theme switch), compact stats ---- */
+.iconbtn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	border: 1px solid var(--line-strong);
+	border-radius: 50%;
+	background: var(--panel);
+	color: var(--dim);
+	cursor: pointer;
+	padding: 0;
+}
+
+.iconbtn:hover {
+	color: var(--acc);
+	border-color: var(--acc);
+	background: var(--hover-acc);
+}
+
+.iconbtn .ic {
+	width: 18px;
+	height: 18px;
+}
+
+#stats {
+	font-size: 12px;
+	white-space: nowrap;
+	padding: 4px 10px;
+	border-radius: 10px;
+	background: var(--hover);
+}
+
+/* selects and inputs of the dark theme use the token colours (the arrow icon follows --dim) */
+:root[data-theme='dark'] select {
+	background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%239aa4b1'><path d='M7 10l5 5 5-5z'/></svg>");
+}
+
+/* ---- ontology header: label / editable field grid ---- */
+.hdrf {
+	display: grid;
+	grid-template-columns: 170px minmax(0, 1fr);
+	gap: 8px 12px;
+	align-items: center;
+	margin-top: 8px;
+}
+
+.hdrf label {
+	color: var(--acc);
+	font-weight: 600;
+	font-size: 13px;
+}
+
+.hdrf input {
+	width: 100%;
+	font-size: 13px;
+}
+
+/* ---- wide modal (annotation dialog, import wizard) ---- */
+#modal .box.wide {
+	width: min(900px, 94vw);
+	max-width: 94vw;
+}
+
+/* annotation dialog: property list | value editor */
+.anndlg {
+	display: grid;
+	grid-template-columns: 260px minmax(0, 1fr);
+	gap: 16px;
+	margin-top: 8px;
+}
+
+.annprops {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-height: 320px;
+}
+
+.annprops .treebox {
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	max-height: 360px;
+	flex: 1;
+}
+
+/* value-kind tabs of the annotation dialog (same component as the other tab bars) */
+.atabs {
+	display: flex;
+	border-bottom: 1px solid var(--line);
+	margin-bottom: 4px;
+}
+
+.atabs button {
+	flex: 0 0 auto;
+	height: 34px;
+	padding: 0 14px;
+	border: 0;
+	border-bottom: 2px solid transparent;
+	background: none;
+	color: var(--dim);
+	font: 500 13px/1 inherit;
+	cursor: pointer;
+}
+
+.atabs button.on {
+	color: var(--acc);
+	border-bottom-color: var(--acc);
+	font-weight: 600;
+}
+
+/* import wizard */
+#modal .wizard .wopt {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 4px 0;
+	font-size: 13px;
+	color: var(--txt);
+}
+
+.wizard .wpane {
+	margin: 10px 0 0 26px;
+}
+
+#modal .wizard input[type='radio'] {
+	width: auto;
+	height: auto;
+	margin: 0;
+}
+
+/* ---- expression dialogs (exprDialog / textAxiomDialog / instancesDialog in entities.js): tab panes,
+   pickable trees and lists, restriction row, preview line, instances toolbar ---- */
+.xdlg {
+	margin-top: 4px;
+}
+
+.xdpane {
+	margin-top: 10px;
+}
+
+/* two panes side by side (restriction creators) */
+.xdcols {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 14px;
+}
+
+/* one pickable pane: heading, filter box, tree / list */
+.xdcol {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	background: var(--panel);
+}
+
+.xdcol .xdlbl {
+	padding: 6px 10px;
+	font-size: var(--fs-sm);
+	font-weight: 600;
+	color: var(--acc);
+	border-bottom: 1px solid var(--line);
+}
+
+/* fixed-height scrolling tree / list (flex: none, or the flex basis would grow to the whole tree) */
+.xdcol .treebox {
+	flex: none;
+	height: 340px;
+	overflow: auto;
+}
+
+.xdcols .xdcol .treebox {
+	height: 260px;
+}
+
+/* an autocompleted one-line input fills the row (attachAutocomplete wraps it in .acwrap) */
+.xdrow .acwrap {
+	flex: 1;
+}
+
+#modal .xdrow .acwrap input {
+	width: 100%;
+}
+
+#modal .xdcol .listsearch input {
+	margin-top: 0;
+}
+
+/* the "Expand all" checkbox of the trees keeps its natural size inside the modal */
+#modal .xdlg .tree input[type='checkbox'] {
+	width: auto;
+	margin: 0;
+}
+
+/* side-by-side fields of the object property assertion dialog: two equal columns filling the row;
+   the inputs are pre-wrapped in .acwrap (so attachAutocomplete adds no inline sizing) and fill their column */
+.xdaflds {
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 14px;
+	align-items: start;
+}
+
+#modal .xdaflds label {
+	margin-top: 0;
+}
+
+#modal .xdaflds .acwrap {
+	display: block;
+	width: 100%;
+}
+
+#modal .xdaflds input {
+	width: 100%;
+}
+
+/* "Anonymous individual" toggle beside the individual field of the object assertion dialog */
+#modal .anonchk {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: 10px;
+	font-size: var(--fs-sm);
+	color: var(--dim);
+	white-space: nowrap;
+	vertical-align: middle;
+}
+
+#modal .anonchk input {
+	width: auto;
+	margin: 0;
+}
+
+/* ---- anonymous individuals: inline card in the entity panels (anonCard in entities.js) and the mini
+   description panel of a new one in the dialogs (anonPanelHtml) ---- */
+.anon {
+	display: inline-block;
+	vertical-align: top;
+	min-width: 280px;
+	max-width: 100%;
+	margin: 2px 0;
+	border: 1px solid var(--line);
+	border-left: 3px solid var(--individual);
+	border-radius: var(--radius);
+	background: var(--panel);
+}
+
+.anon > .anonhead {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 8px;
+	font-size: var(--fs-sm);
+	color: var(--txt);
+	cursor: pointer;
+}
+
+.anon > .anonhead .tg {
+	width: 12px;
+	color: var(--dim);
+}
+
+.anon > .anonhead code,
+.anonpanel code {
+	font-family: var(--mono);
+	font-size: 12px;
+	color: var(--dim);
+}
+
+.anon > .anonbody {
+	padding: 0 8px 6px 12px;
+	border-top: 1px solid var(--line-soft);
+}
+
+/* diamond icon of an anonymous individual (same colour as the named ones) */
+.anonic {
+	display: inline-flex;
+	color: var(--individual);
+	line-height: 0;
+}
+
+.anonic .ic {
+	width: 14px;
+	height: 14px;
+}
+
+.anonpanel {
+	margin-top: 8px;
+	padding: 4px 10px 8px;
+	max-height: 380px;
+	overflow: auto;
+	border: 1px solid var(--line);
+	border-left: 3px solid var(--individual);
+	border-radius: var(--radius);
+}
+
+.anonpanel .psec {
+	margin: 4px 0 0;
+}
+
+/* the preview of a data value that fails its datatype check */
+.xdprev.bad code {
+	color: var(--danger);
+}
+
+/* value / language / datatype column of the data property assertion dialog */
+.xdvbody {
+	padding: 6px 10px 10px;
+}
+
+#modal .xdvbody label:first-child {
+	margin-top: 4px;
+}
+
+/* restriction type + cardinality; also the one-line field of textAxiomDialog */
+.xdrow {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-top: 12px;
+}
+
+#modal .xdrow label {
+	display: inline;
+	margin: 0;
+}
+
+#modal .xdrow select {
+	width: auto;
+	margin: 0;
+}
+
+#modal .xdrow input {
+	margin: 0;
+}
+
+#modal .xdrow input[type='number'] {
+	width: 90px;
+}
+
+#modal .xdrow input:disabled {
+	opacity: 0.45;
+}
+
+.xdrow .xdafter {
+	white-space: nowrap;
+	font-weight: 600;
+	color: var(--acc);
+}
+
+/* preview of the expression held by the active tab */
+.xdprev {
+	margin-top: 12px;
+	padding: 8px 10px;
+	border: 1px dashed var(--line-strong);
+	border-radius: var(--radius);
+	font-size: var(--fs);
+	word-break: break-word;
+}
+
+.xdprev code {
+	font-family: var(--mono);
+}
+
+/* "Inverse Property" checkbox under a property tree */
+#modal .xdchk {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 10px;
+	font-size: 13px;
+	color: var(--txt);
+}
+
+#modal .xdchk input {
+	width: auto;
+	margin: 0;
+}
+
+/* instances dialog: toolbar, list with sticky sortable header, inline new-individual row */
+.xdbar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 6px;
+}
+
+.xdbar .ibtn {
+	margin: 0;
+}
+
+.xdbar .ibtn:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.insl {
+	height: 340px;
+	overflow: auto;
+	border: 1px solid var(--line);
+	border-top: 0;
+	border-radius: 0 0 var(--radius) var(--radius);
+}
+
+#modal .xdlg > .listsearch {
+	border: 1px solid var(--line);
+	border-radius: var(--radius) var(--radius) 0 0;
+	margin-top: 8px;
+}
+
+#modal .xdlg > .listsearch input {
+	margin-top: 0;
+}
+
+.insl .inshdr {
+	position: sticky;
+	top: 0;
+	padding: 4px 12px;
+	font-size: var(--fs-sm);
+	font-weight: 600;
+	color: var(--dim);
+	background: var(--panel);
+	border-bottom: 1px solid var(--line);
+	cursor: pointer;
+}
+
+.xdnew {
+	font-size: 11px;
+	padding: 0 6px;
+	border-radius: 8px;
+	background: var(--acc);
+	color: #fff;
+	margin-left: 6px;
+}
+
+/* ---- pager: first / prev / page box / next / last (pagerHtml in core.js) ---- */
+.pager2 {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	vertical-align: middle;
+	font-weight: 400;
+}
+
+.pager2 .ibtn.pg {
+	width: 28px;
+	padding: 0;
+	margin: 0;
+}
+
+.pager2 .ibtn.pg:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+.pager2 input.pgn {
+	width: 64px;
+	height: 28px;
+	padding: 0 6px;
+	text-align: center;
+	font-size: 12.5px;
+}
+
+.pager2 .dt {
+	white-space: nowrap;
+	margin: 0 4px;
+}
+
+/* colour legends: room between the text and the kind boxes */
+.legend .kind {
+	margin: 0 6px 0 6px;
+}
