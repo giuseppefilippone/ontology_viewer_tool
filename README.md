@@ -6,6 +6,58 @@ datatypes with live membership plots, modifiers, weighted/OWA concepts, graded a
 classical reasoning (HermiT / Pellet), fuzzy reasoning (`fuzzy-dl-owl2`), DL queries, SPARQL,
 SWRL rules, graphs, and a full `fuzzyDL` export.
 
+## The interface at a glance
+
+A Protégé-like **menu bar** drives the global actions:
+
+- **File** — open an ontology (any standard serialization: RDF/XML, Turtle, N3, N-Triples,
+  JSON-LD — foreign formats are converted to RDF/XML on open), open recent workspaces, create
+  a new empty module, save / discard the pending changes, export the inferred axioms as an
+  ontology, remove the active module from the index, stop the server.
+- **Edit** — undo the last change (grouped edits as a whole), find (⌘K), create entities
+  (class, individual, properties, datatype), duplicate / deprecate / delete the selected
+  entity.
+- **View** — light / dark theme; render entities by local name, prefixed name or
+  `rdfs:label`; asserted vs inferred class hierarchy; reload.
+- **Reasoner** — engine (HermiT / Pellet), start / synchronize / stop, configure (default
+  engine, timeout), open the inferred view or the inferred class hierarchy.
+- **Refactor** — rename an entity IRI, mass-rename a namespace, change the ontology IRI,
+  merge ontologies.
+- **Tools** — rebuild the search index, manage the indexes on disk (one per workspace, with
+  per-index delete), clear the reasoner memory, compare ontologies, check for inconsistencies,
+  check for empty entities, show the server log, manage plugins.
+- **Window** — show / hide every view and every Entities sidebar view (flyout submenus,
+  persisted per user), reset the layout.
+- **Help** — notation and keyword tables, this repository, About.
+
+**Every main view is a plugin.** The tab bar is not hardcoded: each view — Ontology info,
+Entities, Reasoner, Fuzzy, Axioms, FDL, Graph, Individuals by class, Knowledge graph,
+DL Query, SPARQL, Rules, Help — is a self-contained package under `viewer/plugins/builtin/<id>/`
+(`plugin.json` + `view.js`, minified build alongside), loaded dynamically at start-up together
+with the packages installed under `viewer/plugins/custom/`. Deleting a package folder removes
+that view entirely (a built-in can be restored by downloading its folder again from this
+repository); the Plugins dialog (Tools) lists both groups with install-from-zip, uninstall and
+per-view disable. Installed zips are validated (missing or syntactically broken scripts are
+rejected) and their scripts minified automatically — the readable sources stay on disk and are
+served with `?dev=1`. See [PLUGINS.md](PLUGINS.md) for the package format and the
+`registerView()` API.
+
+Four more tools open as **modal dialogs** from the menus: **Serialize ontology** (File —
+Turtle / RDF/XML / N-Triples / N3 / JSON-LD, preview and download), **Compare ontologies**
+(Tools — entity-grouped difference list à la Protégé with anonymous OWL expressions folded
+back to `(A or B)` / `(p some C)` / facet form, searchable and paginated, between workspace
+files, `.bak` backups or external ontologies added from a URL / file), **Merge ontologies**
+(Refactor — union into a new self-contained module) and **Indexes on disk** (Tools).
+
+The Entities sidebar defaults to the **Active ontology** scope — the active module plus its
+whole import closure, Protégé semantics — with the closure of all modules one click away;
+lists are ordered by the displayed name, ontology prefixes of imported entities included, and
+the OWL 2 / RDFS / XSD built-in datatypes and annotation properties are always listed.
+
+**Exports**: axioms as CSV / LaTeX / PDF, SWRL rules as CSV / LaTeX / PDF, ontology metrics as
+CSV / LaTeX / PDF, graphs as SVG / Graphviz DOT / TikZ, the FuzzyDL translation as `.fdl`,
+inferred axioms as an ontology, any module in the standard RDF serializations.
+
 ## Requirements
 
 - **Python ≥ 3.11** with:
@@ -33,7 +85,9 @@ pip install rdflib fuzzy-dl-owl2 owlready2
 
 Place the ontology modules (`SDF_ext.owl`, `SDF_individuals.owl`, …) in the **parent
 directory** of the repository — that is the default workspace — or open any other
-folder/ontology from the app afterwards (folder button in the header, top left).
+ontology from the app afterwards (File → Open ontology… / Open from URL…; several paths
+separated by `;` open one shared workspace, and the dialog asks whether to start a new
+workspace or add to the current one).
 
 ## Starting and stopping the viewer
 
@@ -58,6 +112,9 @@ under `viewer/data/` and is **git-ignored**: each clone builds its own.
 | ------ | ------ |
 | `viewer/server.py` | entry point of the Ontology Viewer |
 | `viewer/ontoviewer/` | Python package: indexer, store, editor, reasoners, API |
-| `viewer/static/` | front-end (HTML/CSS/JS; `app.min.js` is the committed bundle) |
+| `viewer/static/` | front-end KIT (HTML/CSS/shared JS; `app.min.js` is the committed bundle) |
+| `viewer/plugins/builtin/<id>/` | one self-contained package per built-in view (`plugin.json` + `view.js`) |
+| `viewer/plugins/custom/` | plugins installed from zip (per-user, git-ignored) |
 | `viewer/data/` | **generated** — per-user indexes, workspaces, logs (git-ignored) |
 | `start_viewer.sh`, `stop_viewer.sh` | start/stop the viewer in the background |
+| `PLUGINS.md` | plugin package format, `registerView()` API, menu entries, API routes |

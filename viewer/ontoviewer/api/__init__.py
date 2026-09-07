@@ -18,7 +18,7 @@ binding paths to functions.  ``/api/upload``, ``/api/pdf``, ``/api/reindex`` and
 """
 
 from ontoviewer import editor
-from ontoviewer.api import axioms, editing, entities, graphs, inference, ontology, reasoning
+from ontoviewer.api import axioms, editing, entities, graphs, inference, ontology, plugins, reasoning
 
 # POST routes that do NOT need an editor connection (no index writes): they receive c=None.
 # Opening a connection would create an empty index file when none exists (sqlite3.connect), so
@@ -35,6 +35,14 @@ NO_CONNECTION = {
     "/api/inference/run",
     "/api/inference/stop",
     "/api/inference/individual",
+    "/api/inference/export",
+    "/api/module/new",
+    "/api/serialize",
+    "/api/diff",
+    "/api/merge",
+    "/api/diff/fetch",
+    "/api/plugins/remove",
+    "/api/indexes/remove",
 }
 
 
@@ -75,6 +83,11 @@ GET_ROUTES = {
     "/api/reasoner/work": reasoning.reasoner_work_info,
     "/api/inference/status": inference.inference_status,
     "/api/inference/tbox": inference.inference_tbox,
+    "/api/server_log": ontology.api_server_log,
+    "/api/plugins": plugins.plugin_list,
+    "/api/diff/files": ontology.diff_files,
+    "/api/check/empty": ontology.api_check_empty,
+    "/api/indexes": ontology.api_indexes,
 }
 
 # POST: path → handler(c, p).  /api/export_fdl and /api/fdl/generate share one handler (the
@@ -112,4 +125,15 @@ POST_ROUTES = {
     "/api/inference/run": inference.inference_run,
     "/api/inference/stop": inference.inference_stop,
     "/api/inference/individual": inference.inference_individual,
+    "/api/inference/export": inference.inference_export,
+    "/api/edit/undo": editing.edit_undo,
+    "/api/edit/redo": editing.edit_redo,
+    "/api/edit/duplicate": editing.edit_duplicate,
+    "/api/module/new": ontology.module_new,
+    "/api/serialize": ontology.api_serialize,
+    "/api/diff": ontology.api_diff,
+    "/api/merge": ontology.api_merge,
+    "/api/diff/fetch": ontology.diff_fetch,
+    "/api/plugins/remove": plugins.plugin_remove,
+    "/api/indexes/remove": ontology.index_remove,
 }

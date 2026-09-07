@@ -18,7 +18,7 @@ import sys
 
 from ontoviewer import config
 
-JS_ORDER = ["core", "entities", "axioms", "graphs", "query", "reasoner", "inference", "menubar", "main"]  # load order (main last)
+JS_ORDER = ["core", "entities", "axioms", "graphs", "query", "inference", "menubar", "views", "main"]  # the shared KIT (the views live in plugins/builtin/, loaded dynamically by main.js)
 JS_DIR = config.STATIC_DIR / "js"
 BUNDLE = config.STATIC_DIR / "app.min.js"
 NODE_BIN = config.VIEWER_DIR / "node_modules" / ".bin"
@@ -26,14 +26,42 @@ CODE_DIR = config.VIEWER_DIR.parent  # code/: pipeline scripts + viewer
 
 
 def sources():
-    """The readable JavaScript files in the order the browser must execute them."""
+    """The readable KIT files in the order the browser must execute them (view packages are
+    loaded dynamically by main.js from plugins/builtin/ and plugins/custom/)."""
     return [JS_DIR / f"{name}.js" for name in JS_ORDER]
 
 
+def minify_file(src, out):
+    """Minify one JavaScript file with terser (same options as the bundle); False without node."""
+    terser = NODE_BIN / "terser"
+    if not terser.exists():
+        return False
+    subprocess.run(
+        [str(terser), str(src), "--compress", "--mangle", "--comments", "false", "-o", str(out)],
+        check=True,
+        capture_output=True,
+        cwd=config.VIEWER_DIR,
+    )
+    return True
+
+
+def build_builtin_views(force=False):
+    """``view.min.js`` next to every ``plugins/builtin/*/view.js`` (the readable source stays
+    for debugging / ?dev=1); rebuilt when stale. Returns how many were rebuilt."""
+    n = 0
+    for src in sorted((config.VIEWER_DIR / "plugins" / "builtin").glob("*/view.js")):
+        out = src.parent / "view.min.js"
+        if force or not out.exists() or out.stat().st_mtime < src.stat().st_mtime:
+            if minify_file(src, out):
+                n += 1
+    return n
+
+
 def script_tags(dev=False):
-    """HTML <script> tags: the bundle, or the readable sources when ``dev`` is true."""
+    """HTML <script> tags of the KIT: the bundle, or the readable sources when ``dev`` is true
+    (the view packages are injected at runtime by main.js in both modes)."""
     if dev:
-        return "\n".join(f'    <script src="/static/js/{name}.js"></script>' for name in JS_ORDER)
+        return "\n".join(f'    <script src="/static/js/{n}.js"></script>' for n in JS_ORDER)
     return '    <script src="/static/app.min.js"></script>'
 
 
@@ -51,6 +79,9 @@ def build(force=False):
     Top-level names are NOT mangled: the markup calls the functions by name from inline
     ``onclick`` handlers and the files share the global scope.
     """
+    n = build_builtin_views(force)
+    if n:
+        print(f"builtin views: {n} view.min.js rebuilt")
     if not force and not stale():
         return False
     terser = NODE_BIN / "terser"

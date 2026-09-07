@@ -69,6 +69,36 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
  * @returns {Promise<Object>} Parsed JSON body.
  */
 const api = (p, q) => fetch(p + '?' + new URLSearchParams({ ...q, active: activeFile() })).then((r) => r.json());
+// ---------- active-ontology state (KIT: every view and api() depend on it) ----------
+// ontoData = cached GET /api/ontology response ({ontologies:[{iri,file,imports,annotations}], metrics:
+// {file:{name:value}}, per_module, prefixes:{file:[[prefix,ns]]}}); activeOnt = IRI of the active ontology
+let ontoData = null,
+	activeOnt = null;
+/**
+ * Runs `cb` once the ontology data (`ontoData`) is available, fetching it on first use.
+ * @param {Function} cb  callback invoked (synchronously if already loaded) after `ontoData` is set.
+ * @returns {*} the callback's return value when `ontoData` was already loaded, otherwise undefined.
+ * Side effects: GET /api/ontology; sets the globals `ontoData` and (if unset) `activeOnt`, which
+ * defaults to the module with the most imports, i.e. the root of the closure (same rule as renderOntology).
+ */
+function ensureOnto(cb) {
+	if (ontoData) return cb();
+	api('/api/ontology', {}).then((d) => {
+		ontoData = d;
+		activeOnt = activeOnt || [...d.ontologies].sort((a, b) => b.imports.length - a.imports.length)[0]?.iri;
+		refreshNames(); // display names depend on the active ontology
+		cb();
+	});
+}
+/**
+ * File name (module) of the active ontology.
+ * @returns {string|null} the .owl file of `activeOnt`, or null when unknown / not indexed.
+ */
+function fdlFile() {
+	const o = (ontoData?.ontologies || []).find((x) => x.iri === activeOnt);
+	return o && o.file ? o.file : null;
+}
+
 /** Module file of the active ontology ('' before the ontology data is loaded): entities declared elsewhere are shown with a prefix. */
 const activeFile = () => {
 	try {
@@ -413,9 +443,22 @@ $('#ixbtn').onclick = () =>
  * @returns {string} HTML; the <a> calls show(encodedIri) on click.
  */
 function entLink(v) {
-	const lbl = v.label && v.label !== v.name ? ` <span class="dt">(${esc(v.label)})</span>` : '';
-	return `${dot(v.kind, v.fuzzy)}<a class="ent" onclick="show('${encodeURIComponent(v.iri)}')">${esc(v.name)}</a>${lbl}`;
+	const other = RENDER_MODE === 'label' ? v.name : v.label;
+	const lbl = other && other !== dname(v) ? ` <span class="dt">(${esc(other)})</span>` : '';
+	return `${dot(v.kind, v.fuzzy)}<a class="ent" onclick="show('${encodeURIComponent(v.iri)}')">${esc(dname(v))}</a>${lbl}`;
 }
+/** View-menu rendering mode (ui_config.render_mode): 'name' (local name), 'prefix', 'label'. */
+let RENDER_MODE = 'name';
+/** Back-compatibility alias kept for older ui_config files (render_labels: true). */
+let RENDER_LABELS = false;
+/** Prefixed form of an IRI (SPARQL_PFX namespaces, query.js), else the local name. */
+const pfxName = (iri, name) => {
+	for (const [ns, p] of Object.entries(SPARQL_PFX)) if (iri && iri.startsWith(ns)) return p + iri.slice(ns.length);
+	return name;
+};
+/** Display name of an entity node according to the View-menu rendering mode. */
+const dname = (v) =>
+	RENDER_MODE === 'label' && v.label ? v.label : RENDER_MODE === 'prefix' ? pfxName(v.iri, v.name) : v.name;
 
 // ---------- sidebar ----------
 /** Sub-tab click (#tabs): select the kind, reset page and filter (#ls), reload the list. Mutates tab, page, filter. */
@@ -446,8 +489,21 @@ let scope = '';
  */
 function scopeGraph() {
 	if (scope === 'active') {
-		const o = ontoData?.ontologies.find((x) => x.iri === activeOnt);
-		return o ? o.file : '';
+		// Protégé semantics: the ACTIVE ONTOLOGY is the module plus its whole import closure
+		if (!ontoData) return '';
+		const byIri = {};
+		ontoData.ontologies.forEach((o) => (byIri[o.iri] = o));
+		const files = [];
+		const walk = (iri) => {
+			const o = byIri[iri];
+			if (!o || !o.file || files.includes(o.file)) return;
+			files.push(o.file);
+			(o.imports || []).forEach(walk);
+		};
+		walk(activeOnt);
+		// the active closure spans every module of the workspace → the unfiltered fast path
+		if (typeof modules !== 'undefined' && modules.length && files.length >= modules.length) return '';
+		return files.join(',');
 	}
 	return scope;
 }
@@ -456,18 +512,24 @@ function scopeGraph() {
  * Keeps the previously selected value when still present. Mutates `scope`.
  * @returns {void}
  */
+let scopeTouched = false; // the user picked a scope: fillScope must not override it with the default
 function fillScope() {
 	const sel = $('#scopesel');
 	const cur = sel.value;
 	const act = ontoData?.ontologies.find((x) => x.iri === activeOnt);
 	sel.innerHTML =
-		`<option value="">Closure (all modules)</option>` +
-		(act ? `<option value="active">Active ontology only (${esc(act.file)})</option>` : '');
-	sel.value = cur === 'active' && act ? 'active' : ''; // a per-module choice of an older session falls back to the closure
-	scope = sel.value;
+		(act ? `<option value="active">Active ontology (${esc(act.file)})</option>` : '') +
+		`<option value="">Closure (all modules)</option>`;
+	// default scope = the ACTIVE ontology (not the closure) until the user chooses explicitly
+	sel.value = cur === 'active' && act ? 'active' : !scopeTouched && act ? 'active' : '';
+	if (sel.value !== scope) {
+		scope = sel.value;
+		loadList(); // the first list may have loaded with the closure before the default applied
+	}
 }
 /** onchange handler of #scopesel (wired in index.html): store the new scope and reload the list from page 0. */
 function scopeChanged() {
+	scopeTouched = true;
 	scope = $('#scopesel').value;
 	page = 0;
 	loadList();
@@ -500,7 +562,7 @@ function loadList() {
 				.map(
 					(n) =>
 						`<div class="item${n.iri === selIri ? ' sel' : ''}" onclick="show('${encodeURIComponent(n.iri)}')" title="${esc(n.iri)}">` +
-						`${dot(n.kind, n.fuzzy)}${esc(n.name)}</div>`
+						`${dot(n.kind, n.fuzzy)}${esc(dname(n))}</div>`
 				)
 				.join('') || '<div class="empty">empty</div>';
 		const pages = Math.max(1, Math.ceil(d.total / 200));
@@ -553,7 +615,7 @@ function treeHtml(roots, kind, o) {
 	const link = (n, bold) =>
 		n.builtin && n.unsat
 			? `<a class="ent" style="font-weight:600" title="unsatisfiable classes (equivalent to owl:Nothing)">${esc(n.name)}</a>`
-			: `<a class="ent" style="${bold ? 'font-weight:600' : ''}" onclick="${esc(o.click(n.iri))}"${n.inferred ? ` title="inferred by ${esc(infEngineName())}"` : ''}>${esc(n.name)}</a>`;
+			: `<a class="ent" style="${bold ? 'font-weight:600' : ''}" onclick="${esc(o.click(n.iri))}"${n.inferred ? ` title="inferred by ${esc(infEngineName())}"` : ''}>${esc(dname(n))}</a>`;
 	// node label: link to the entity, followed by "= <equivalent>" links (defined classes are bold)
 	const label = (n) =>
 		link(n, n.equivalent && n.equivalent.length) +
@@ -622,7 +684,7 @@ $('#gs').oninput = (e) => {
 						.map(
 							(n) =>
 								`<div class="item" title="${esc(n.iri)}" onclick="show('${encodeURIComponent(n.iri)}');this.parentNode.style.display='none'">` +
-								`${dot(n.kind, n.fuzzy)}${esc(n.name)} <span class="dt">${KL[n.kind] || ''}${n.fuzzy ? ' · fuzzy' : ''}${n.label && n.label !== n.name ? ' · ' + esc(n.label) : ''}</span></div>`
+								`${dot(n.kind, n.fuzzy)}${esc(dname(n))} <span class="dt">${KL[n.kind] || ''}${n.fuzzy ? ' · fuzzy' : ''}${n.label && n.label !== n.name ? ' · ' + esc(RENDER_MODE === 'label' ? n.name : n.label) : ''}</span></div>`
 						)
 						.join('') || '<div class="item">no results</div>';
 				$('#searchresults').style.display = 'block';
@@ -639,46 +701,73 @@ document.addEventListener('click', (e) => {
 /**
  * Main tab click (#maintabs, data-mt): highlight the button, show only the matching #tab-<id> panel
  * (#tab-entities uses display:flex, the others block) and call the panel's render* function
- * (defined in axioms.js / graphs.js / query.js / reasoner.js). The Entities panel needs no render call.
+ * (defined in axioms.js / graphs.js / query.js / reasoner.js, or in the plugin-view registry VIEWS).
+ * The Entities panel needs no render call.
+ * @param {Element} b The tab button (also used by registerView for buttons created later).
+ * @returns {void}
  */
-document.querySelectorAll('#maintabs button').forEach(
-	(b) =>
-		(b.onclick = () => {
-			document.querySelectorAll('#maintabs button').forEach((x) => x.classList.remove('on'));
-			b.classList.add('on');
-			const t = b.dataset.mt;
-			$('#tab-ontology').style.display = t === 'ontology' ? 'block' : 'none';
-			$('#tab-entities').style.display = t === 'entities' ? 'flex' : 'none';
-			if (t === 'entities') fitSidebar(); // the sub-tab row is measurable only while the panel is visible
-			$('#tab-reasoner').style.display = t === 'reasoner' ? 'block' : 'none';
-			$('#tab-fuzzy').style.display = t === 'fuzzy' ? 'block' : 'none';
-			$('#tab-axioms').style.display = t === 'axioms' ? 'block' : 'none';
-			$('#tab-fdl').style.display = t === 'fdl' ? 'block' : 'none';
-			$('#tab-graph').style.display = t === 'graph' ? 'block' : 'none';
-			['byclass', 'kg', 'dlquery', 'sparql', 'rules', 'help'].forEach((k) => {
-				$('#tab-' + k).style.display = t === k ? 'block' : 'none';
-			});
-			if (t === 'rules') renderRules();
-			if (t === 'help') renderHelp();
-			if (t === 'ontology') renderOntology();
-			if (t === 'reasoner') renderReasoner();
-			if (t === 'fuzzy') renderFuzzyTab();
-			if (t === 'axioms') renderAxioms();
-			if (t === 'fdl') renderFdl();
-			if (t === 'graph') renderGraph();
-			if (t === 'byclass') renderByClass();
-			if (t === 'kg') renderKg();
-			if (t === 'dlquery') renderDlQuery();
-			if (t === 'sparql') renderSparql();
-		})
-);
+function bindMainTab(b) {
+	b.onclick = () => {
+		document.querySelectorAll('#maintabs button').forEach((x) => x.classList.remove('on'));
+		b.classList.add('on');
+		const t = b.dataset.mt;
+		// every top-level tab panel is a direct child of <body> with id tab-<id>
+		document.querySelectorAll('body > [id^="tab-"]').forEach((p) => {
+			p.style.display = p.id === 'tab-' + t ? (t === 'entities' ? 'flex' : 'block') : 'none';
+		});
+		if (VIEWS[t] && VIEWS[t].render) VIEWS[t].render();
+	};
+}
+
+// ---------- plugin views ----------
+/** Registered views: id → {id, title, tooltip, render}. EVERY main tab goes through this
+ * registry — the built-in ones register in views.js, installed plugins at load. See PLUGINS.md. */
+const VIEWS = {};
+/**
+ * Plugin hook: add a main-tab view without touching the core files.
+ * Creates the #tab-<id> panel (a direct child of <body>; an existing static panel with that id is
+ * reused) and the #maintabs button, and wires the standard tab behaviour: the Window menu
+ * (show / hide), drag-to-reorder and the #tab= deep link work on the new view with no further
+ * code. `render` is called on every click of the tab: build the panel once behind a data-ready
+ * guard and refresh the data on the following calls.
+ * @param {{id: string, title: string, tooltip?: string, render?: function(): void}} v
+ * @returns {void}
+ */
+/** Problems met while loading the view packages; shown once by startUp (main.js). */
+const PLUGIN_ERRORS = [];
+function registerView(v) {
+	if (!v || !v.id || !v.title) {
+		PLUGIN_ERRORS.push(`registerView: a view needs at least an id and a title (got ${JSON.stringify(v && v.id)})`);
+		return;
+	}
+	if (typeof v.render !== 'function') {
+		PLUGIN_ERRORS.push(`view "${v.id}": render is not a function — the view was not registered`);
+		return;
+	}
+	if (VIEWS[v.id]) PLUGIN_ERRORS.push(`view "${v.id}": registered twice (the newer registration replaces the older)`);
+	VIEWS[v.id] = v;
+	if (!document.getElementById('tab-' + v.id)) {
+		const panel = document.createElement('div');
+		panel.id = 'tab-' + v.id;
+		panel.style.cssText = 'display:none;flex:1;overflow:auto;padding:18px 26px';
+		document.body.insertBefore(panel, $('#tab-entities'));
+	}
+	const b = document.createElement('button');
+	b.dataset.mt = v.id;
+	b.textContent = v.title;
+	if (v.tooltip) b.title = v.tooltip;
+	const bar = $('#maintabs');
+	bar.insertBefore(b, bar.querySelector('span.dt'));
+	if ((uiConfig.hidden_tabs || []).includes(v.id)) b.style.display = 'none'; // views registered after start-up (installed plugins)
+	bindMainTab(b);
+}
 /**
  * Switch to the Entities tab and open an entity (used by links in the other panels).
  * @param {string} iri Raw (not encoded) entity IRI.
  * @returns {void}
  */
 function openEntity(iri) {
-	document.querySelector('#maintabs [data-mt=entities]').click();
+	document.querySelector('#maintabs [data-mt=entities]')?.click();
 	show(encodeURIComponent(iri));
 }
 
@@ -781,7 +870,7 @@ let countAnn = true; // metrics include annotation axioms (OWL API default); per
 function setCountAnn(v) {
 	countAnn = !!v;
 	post('/api/ui_config', { count_annotations: countAnn });
-	if (ontoData) drawOntology();
+	if (ontoData && typeof drawOntology === 'function') drawOntology(); // the ontology package may be uninstalled
 }
 // the sidebar can never be narrower than its row of sub-tabs (no scrolling, no wrapping)
 /** Set the min-width of #sidebar to the natural width of the #tabs row. @returns {void} */
@@ -807,14 +896,18 @@ function openWorkspace() {
 					type: 'html',
 					html: `<label>Main .owl file on this computer</label>
 <div style="display:flex;gap:8px;margin-top:3px"><button class="ibtn" style="margin:0" onclick="pickFile()" title="Choose the main .owl file with the system file dialog: only its path is filled in below, nothing is uploaded">${ic('folder')} Browse… (system dialog, no upload)</button>
-<label class="ibtn" style="margin:0;cursor:pointer" title="Upload a copy of an ontology file into viewer/uploads/ and open it (suitable for small files)">${ic('upload')} Upload file… <input type="file" accept=".owl,.rdf,.xml,.ttl" style="display:none" onchange="uploadFile(this)"></label></div>
-<div class="dt" style="margin-top:4px">Imports are resolved via catalog-v001.xml / owl:imports in the same folder. Upload copies the file into viewer/uploads/ (suitable for small files).</div>`
+<label class="ibtn" style="margin:0;cursor:pointer" title="Upload a copy of an ontology file into viewer/uploads/ and open it (suitable for small files); Turtle / N3 / N-Triples / JSON-LD files are converted to RDF/XML on open">${ic('upload')} Upload file… <input type="file" accept=".owl,.rdf,.xml,.ttl,.n3,.nt,.jsonld" style="display:none" onchange="uploadFile(this)"></label></div>
+<div class="dt" style="margin-top:4px">Imports are resolved via catalog-v001.xml / owl:imports in the same folder. Upload copies the file into viewer/uploads/ (suitable for small files).</div>
+<div style="margin-top:10px"><label style="display:block;font-size:13px"><input type="radio" name="wsmode" value="new" checked>
+Open as a <b>new workspace</b> (its own index; the current one stays on disk)</label>
+<label style="display:block;font-size:13px"><input type="radio" name="wsmode" value="add">
+<b>Add to the current workspace</b> (one shared index — a full rebuild is needed before browsing; pending changes of the current index do not carry over: save them first)</label></div>`
 				},
 				{
 					name: 'path',
-					label: '…or file path',
+					label: '…or file path(s) — separate several with ";" to open them in ONE workspace / index',
 					required: true,
-					placeholder: '/Users/…/ontology.owl',
+					placeholder: '/Users/…/ontology.owl; /Users/…/extra_module.owl',
 					value: w.current.dir + '/' + (w.current.files[w.current.files.length - 1] || '')
 				},
 				// recent workspaces: clicking one copies "<dir>/<last file>" into the path field
@@ -833,7 +926,12 @@ function openWorkspace() {
 				}
 			],
 			(v) =>
-				post('/api/workspace/open', { path: v.path }).then((r) => {
+				// ";"-separated paths open one workspace with all of them (e.g. the SDF entry file + an extra module);
+				// wsmode "add" appends them to the CURRENT workspace instead of starting a separate one
+				post('/api/workspace/open', {
+					paths: v.path.split(';').map((s) => s.trim()).filter(Boolean),
+					add: document.querySelector('#modalbox [name=wsmode]:checked')?.value === 'add',
+				}).then((r) => {
 					if (r.error) return r;
 					alert(
 						'Workspace: ' +

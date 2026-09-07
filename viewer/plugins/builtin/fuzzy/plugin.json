@@ -1,0 +1,9 @@
+{
+ "name": "fuzzy",
+ "title": "Fuzzy",
+ "version": "built-in",
+ "description": "Every fuzzy entity of the workspace (sdf:isFuzzy) grouped by kind, with its fuzzy definition",
+ "js": [
+  "view.js"
+ ]
+}

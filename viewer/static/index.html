@@ -17,10 +17,12 @@
             <button class="mb" data-menu="edit" onclick="mbToggle(this)">Edit</button>
             <button class="mb" data-menu="view" onclick="mbToggle(this)">View</button>
             <button class="mb" data-menu="reasoner" onclick="mbToggle(this)">Reasoner</button>
+            <button class="mb" data-menu="refactor" onclick="mbToggle(this)">Refactor</button>
             <button class="mb" data-menu="tools" onclick="mbToggle(this)">Tools</button>
             <button class="mb" data-menu="window" onclick="mbToggle(this)">Window</button>
             <button class="mb" data-menu="help" onclick="mbToggle(this)">Help</button>
             <div id="mbpanel" class="dmenu" hidden></div>
+            <div id="mbpanel2" class="dmenu" hidden></div>
         </nav>
         <div id="globalsearch">
             <input id="gs"
@@ -53,20 +55,9 @@
         <select id="ontsel" aria-label="Active ontology"></select>
         <!-- removal of the active module: File menu → Remove active ontology from index -->
     </div>
+    <!-- the tab buttons are NOT hardcoded here: every view (built-in or installed plugin)
+         registers itself through registerView() — built-ins in static/js/views.js -->
     <nav id="maintabs">
-        <button data-mt="ontology" class="on" title="Header, imports, prefixes and metrics of the active ontology (CSV / LaTeX / PDF export)">Ontology info</button>
-        <button data-mt="entities" title="Browse and edit the classes, individuals, properties and datatypes of the workspace">Entities</button>
-        <button data-mt="reasoner" title="Run the fuzzy (FuzzyDL) and classic (HermiT / Pellet) reasoners on the schema plus chosen individuals; classify the closure for the inferred view">Reasoner</button>
-        <button data-mt="fuzzy" title="Every fuzzy entity of the workspace (sdf:isFuzzy) grouped by kind, with its fuzzy definition">Fuzzy</button>
-        <button data-mt="axioms" title="List the axioms of a module or of the closure in DL, Fuzzy DL or FuzzyDL notation; export as LaTeX / PDF">Axioms</button>
-        <button data-mt="fdl" title="The FuzzyDL (.fdl) text of the closure of the active ontology: generate, browse, download">FDL</button>
-        <button data-mt="graph" title="Draw the class graph of the schema: subclass, equivalence, disjointness and property edges, UML boxes">Graph</button>
-        <button data-mt="byclass" title="Class tree with the asserted direct instances of the selected class">Individuals by class</button>
-        <button data-mt="kg" title="Draw individuals and their object property assertions: neighbourhood of a start individual or a sample of a class">Knowledge graph</button>
-        <button data-mt="dlquery" title="Ask a class expression in Manchester syntax: super / sub / equivalent classes and instances, from the index or with HermiT">DL Query</button>
-        <button data-mt="sparql" title="Run SPARQL queries on the whole import closure through the SQLite index">SPARQL</button>
-        <button data-mt="rules" title="SWRL and fuzzy rules of the workspace: try a rule on the data, add rules to a module">Rules</button>
-        <button data-mt="help" title="Reference tables: DL / Fuzzy DL notation, FuzzyDL and Manchester keywords, SWRL built-ins, SPARQL prefixes">Help</button>
         <span class="dt" style="margin-left:auto;align-self:center;padding-right:8px"
               title="Drag the tabs to reorder them: the order is saved in code/viewer/ui_config.json"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.99 11 3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/></svg> drag to reorder</span>
     </nav>

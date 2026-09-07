@@ -1,0 +1,9 @@
+{
+ "name": "fdl",
+ "title": "FDL",
+ "version": "built-in",
+ "description": "The FuzzyDL (.fdl) text of the closure of the active ontology: generate, browse, download",
+ "js": [
+  "view.js"
+ ]
+}

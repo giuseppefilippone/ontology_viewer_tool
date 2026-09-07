@@ -206,8 +206,11 @@ def declared_in(graph):
     ti = get_id(config.RDF_TYPE)
     # ids of the declaration classes (owl:Class, owl:ObjectProperty, …) present in the index
     kinds = ",".join(str(get_id(k)) for k in indexer.KIND_TYPES if get_id(k) is not None)
-    # nodes with a  <id> rdf:type <kind>  statement asserted in that module
-    return (f" AND id IN (SELECT s FROM stmt WHERE p={ti} AND graph=? AND o_id IN ({kinds}))", (graph,))
+    # nodes with a  <id> rdf:type <kind>  statement asserted in those modules ("," separates
+    # several files: the scope "active ontology" sends the module plus its import closure)
+    files = [g for g in str(graph).split(",") if g]
+    ph = ",".join("?" * len(files))
+    return (f" AND id IN (SELECT s FROM stmt WHERE p={ti} AND graph IN ({ph}) AND o_id IN ({kinds}))", tuple(files))
 
 
 class _DBPath:

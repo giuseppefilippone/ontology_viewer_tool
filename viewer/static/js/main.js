@@ -25,94 +25,160 @@
 	const b = $('#themebtn');
 	if (b) b.innerHTML = ic(currentTheme() === 'dark' ? 'light' : 'dark');
 }
-loadOverview(); // header statistics + module list (GET /api/overview)
-ixRefresh(); // start polling the index status (GET /api/index_status)
-infPoll(); // inferred view: header chip, sidebar view select, resume polling a running classification (inference.js)
-loadList(); // initial fill of the sidebar (class tree), once every file is loaded (the tree reads the inferred-view state)
-// the sidebar filter box autocompletes on the entities of the current sub-tab (whole value = one name)
-attachAutocomplete($('#ls'), {
-	single: true,
-	keywords: false,
-	kinds: () => [listKind()],
-	onPick: (it) => it.iri && show(encodeURIComponent(it.iri)) // a picked suggestion opens the entity
-});
-/**
- * Apply the persisted UI configuration (GET /api/ui_config → {count_annotations, sidebar_width, tab_order,
- * entity_tab_order}): metrics flag (countAnn, redraw if the ontology panel is already loaded), sidebar width,
- * order of the main tabs and of the sidebar sub-tabs; then enable drag-to-reorder and fit the sidebar min-width.
- */
-api('/api/ui_config', {}).then((cfg) => {
-	uiConfig = cfg; // kept for panels rendered later (e.g. the Individuals-by-class column width)
-	countAnn = cfg.count_annotations !== false;
-	if (ontoData) drawOntology();
-	if (cfg.sidebar_width) $('#sidebar').style.width = cfg.sidebar_width + 'px';
-	applyTabOrder($('#maintabs'), cfg.tab_order, 'mt');
-	applyTabOrder($('#tabs'), cfg.entity_tab_order, 'tab');
-	// tabs hidden from the Window menu; if the active one is hidden, fall back to the first visible
-	(cfg.hidden_tabs || []).forEach((k) => {
-		const b = document.querySelector(`#maintabs [data-mt=${k}]`);
-		if (b) b.style.display = 'none';
+// Every view is a plugin: load the built-in packages (canonical order) and the installed ones —
+// minified builds unless ?dev=1 (the readable sources stay on disk for debugging) — THEN start up.
+const DEV_MODE = new URLSearchParams(location.search).has('dev');
+api('/api/plugins', {}).then((d) => {
+	const items = [
+		...(d.builtin || []).map((p) => ({ base: `/plugins-builtin/${p.name}/`, p, custom: false })),
+		...(d.plugins || []).map((p) => ({ base: `/plugins/${p.name}/`, p, custom: true })),
+	];
+	let pending = 1; // settles even with zero plugin scripts
+	let seen = 0; // views registered so far: a custom script that adds none gets a warning
+	const done = () => {
+		if (--pending === 0) startUp();
+	};
+	items.forEach(({ base, p, custom }) => {
+		(p.css || []).forEach((f) => {
+			const l = document.createElement('link');
+			l.rel = 'stylesheet';
+			l.href = base + f;
+			document.head.appendChild(l);
+		});
+		const files = DEV_MODE || !(p.js_min || []).length ? p.js || [] : p.js_min;
+		files.forEach((f) => {
+			pending++;
+			const s = document.createElement('script');
+			s.src = base + f;
+			s.async = false; // injected scripts keep their insertion order → the `seen` check is per script
+			s.onload = () => {
+				const now = Object.keys(VIEWS).length;
+				if (custom && now === seen)
+					PLUGIN_ERRORS.push(`plugin "${p.name}" (${f}): loaded but registered no view — a syntax/runtime error (see the console) or a missing registerView() call`);
+				seen = now;
+				done();
+			};
+			s.onerror = () => {
+				PLUGIN_ERRORS.push(`plugin "${p.name}": ${f} could not be loaded (network / missing file)`);
+				done();
+			};
+			document.body.appendChild(s);
+		});
 	});
-	const on = document.querySelector('#maintabs button.on');
-	if (on && on.style.display === 'none') {
-		const v = [...document.querySelectorAll('#maintabs [data-mt]')].find((b) => b.style.display !== 'none');
-		if (v) v.click();
-	}
-	makeSortable($('#maintabs'), 'tab_order');
-	makeSortable($('#tabs'), 'entity_tab_order');
-	fitSidebar();
+	done();
 });
-// deep link: #iri=<encoded IRI> opens the entity directly (also used for headless tests)
-// deep link: #tab=<data-mt id> clicks the main tab after a short delay (lets the initial loads settle)
-if (location.hash.startsWith('#tab=')) {
-	const h = new URLSearchParams(location.hash.slice(1));
-	const b = document.querySelector(`#maintabs [data-mt="${h.get('tab')}"]`);
-	if (b) setTimeout(() => b.click(), 300);
-	if (h.get('click')) setTimeout(() => document.querySelector(h.get('click'))?.click(), 2500); // test hook
-}
-if (location.hash.startsWith('#iri=')) {
-	// the hash is parsed as a query string: iri=<IRI>[&click=<CSS selector>[;<selector>…]][&set=<selector>:<value>[;…]]
-	const h = new URLSearchParams(location.hash.slice(1));
-	document.querySelector('#maintabs [data-mt=entities]').click();
-	show(encodeURIComponent(h.get('iri')));
-	// test hook: &set=<selector>:<value> sets the value of those controls (selects) and fires their change event
-	// 2 s later (after the start-up loads), e.g. set=#viewsel:inferred for the inferred class tree
-	if (h.get('set'))
-		setTimeout(
-			() =>
-				h
-					.get('set')
-					.split(';')
-					.forEach((kv) => {
-						const [sel, val] = kv.split(':');
-						const el = document.querySelector(sel);
-						if (el) {
-							el.value = val;
-							el.dispatchEvent(new Event('change'));
-						}
-					}),
-			2000
-		);
-	// test hook: &click=<selectors separated by ";"> clicks those elements in turn (each revealed — its entity tab
-	// activated — and scrolled into view), the first 2.5 s later (after the entity view has rendered) and the next
-	// ones 900 ms apart (dialogs and trees load meanwhile), logging each
-	if (h.get('click'))
-		h.get('click')
-			.split(';')
-			.forEach((sel, i) =>
-				setTimeout(
-					() => {
-						const el = document.querySelector(sel);
-						console.log('TESTCLICK', sel, !!el, el && el.getAttribute('onclick'));
-						if (el) {
-							entTabReveal(el);
-							el.scrollIntoView({ block: 'center' });
-							el.click();
-						}
-					},
-					2500 + i * 900
-				)
+
+/** Start-up once every view (built-in and installed) has registered: initial loads, UI config, deep links. */
+function startUp() {
+	if (PLUGIN_ERRORS.length) alert('Plugin problems:\n\n' + PLUGIN_ERRORS.join('\n'));
+	loadOverview(); // header statistics + module list (GET /api/overview)
+	ixRefresh(); // start polling the index status (GET /api/index_status)
+	infPoll(); // inferred view: header chip, sidebar view select, resume polling a running classification (inference.js)
+	loadList(); // initial fill of the sidebar (class tree), once every file is loaded (the tree reads the inferred-view state)
+	// the sidebar filter box autocompletes on the entities of the current sub-tab (whole value = one name)
+	attachAutocomplete($('#ls'), {
+		single: true,
+		keywords: false,
+		kinds: () => [listKind()],
+		onPick: (it) => it.iri && show(encodeURIComponent(it.iri)) // a picked suggestion opens the entity
+	});
+	/**
+	 * Apply the persisted UI configuration (GET /api/ui_config → {count_annotations, sidebar_width, tab_order,
+	 * entity_tab_order}): metrics flag (countAnn, redraw if the ontology panel is already loaded), sidebar width,
+	 * order of the main tabs and of the sidebar sub-tabs; then enable drag-to-reorder and fit the sidebar min-width.
+	 */
+	api('/api/ui_config', {}).then((cfg) => {
+		uiConfig = cfg; // kept for panels rendered later (e.g. the Individuals-by-class column width)
+		countAnn = cfg.count_annotations !== false;
+		const rm = cfg.render_mode || (cfg.render_labels === true ? 'label' : 'name');
+		if (rm !== 'name') {
+			RENDER_MODE = rm; // View menu rendering mode: local name / prefixed name / label
+			loadList();
+		}
+		if (ontoData && typeof drawOntology === 'function') drawOntology();
+		if (cfg.sidebar_width) $('#sidebar').style.width = cfg.sidebar_width + 'px';
+		applyTabOrder($('#maintabs'), cfg.tab_order, 'mt');
+		applyTabOrder($('#tabs'), cfg.entity_tab_order, 'tab');
+		// tabs / sidebar views hidden from the Window menu; if the active one is hidden, fall back to the first visible
+		(cfg.hidden_tabs || []).forEach((k) => {
+			const b = document.querySelector(`#maintabs [data-mt=${k}]`);
+			if (b) b.style.display = 'none';
+		});
+		// start-up tab: Ontology info when visible, else the first visible view
+		const first = document.querySelector('#maintabs [data-mt=ontology]');
+		(first && first.style.display !== 'none'
+			? first
+			: [...document.querySelectorAll('#maintabs [data-mt]')].find((b) => b.style.display !== 'none')
+		)?.click();
+		(cfg.hidden_entity_tabs || []).forEach((k) => {
+			const b = document.querySelector(`#tabs [data-tab=${k}]`);
+			if (b) b.style.display = 'none';
+		});
+		const eon = document.querySelector('#tabs button.on');
+		if (eon && eon.style.display === 'none') {
+			const v = [...document.querySelectorAll('#tabs [data-tab]')].find((b) => b.style.display !== 'none');
+			if (v) v.click();
+		}
+		makeSortable($('#maintabs'), 'tab_order');
+		makeSortable($('#tabs'), 'entity_tab_order');
+		fitSidebar();
+	});
+	// deep link: #iri=<encoded IRI> opens the entity directly (also used for headless tests)
+	// deep link: #tab=<data-mt id> clicks the main tab after a short delay (lets the initial loads settle)
+	if (location.hash.startsWith('#tab=')) {
+		const h = new URLSearchParams(location.hash.slice(1));
+		const b = document.querySelector(`#maintabs [data-mt="${h.get('tab')}"]`);
+		if (b) setTimeout(() => b.click(), 300);
+		// test hook: like the #iri= branch, ";"-separated selectors are clicked in turn (900 ms apart)
+		if (h.get('click'))
+			h.get('click')
+				.split(';')
+				.forEach((sel, i) => setTimeout(() => document.querySelector(sel)?.click(), 2500 + i * 900));
+	}
+	if (location.hash.startsWith('#iri=')) {
+		// the hash is parsed as a query string: iri=<IRI>[&click=<CSS selector>[;<selector>…]][&set=<selector>:<value>[;…]]
+		const h = new URLSearchParams(location.hash.slice(1));
+		document.querySelector('#maintabs [data-mt=entities]')?.click();
+		show(encodeURIComponent(h.get('iri')));
+		// test hook: &set=<selector>:<value> sets the value of those controls (selects) and fires their change event
+		// 2 s later (after the start-up loads), e.g. set=#viewsel:inferred for the inferred class tree
+		if (h.get('set'))
+			setTimeout(
+				() =>
+					h
+						.get('set')
+						.split(';')
+						.forEach((kv) => {
+							const [sel, val] = kv.split(':');
+							const el = document.querySelector(sel);
+							if (el) {
+								el.value = val;
+								el.dispatchEvent(new Event('change'));
+							}
+						}),
+				2000
 			);
+		// test hook: &click=<selectors separated by ";"> clicks those elements in turn (each revealed — its entity tab
+		// activated — and scrolled into view), the first 2.5 s later (after the entity view has rendered) and the next
+		// ones 900 ms apart (dialogs and trees load meanwhile), logging each
+		if (h.get('click'))
+			h.get('click')
+				.split(';')
+				.forEach((sel, i) =>
+					setTimeout(
+						() => {
+							const el = document.querySelector(sel);
+							console.log('TESTCLICK', sel, !!el, el && el.getAttribute('onclick'));
+							if (el) {
+								entTabReveal(el);
+								el.scrollIntoView({ block: 'center' });
+								el.click();
+							}
+						},
+						2500 + i * 900
+					)
+				);
+	}
 }
 /**
  * Dev-mode check (?dev=1): every button-like element must carry a help tooltip. After each DOM change (debounced

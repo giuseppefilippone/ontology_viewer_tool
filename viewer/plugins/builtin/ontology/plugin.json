@@ -1,0 +1,9 @@
+{
+ "name": "ontology",
+ "title": "Ontology info",
+ "version": "built-in",
+ "description": "Header, imports, prefixes and metrics of the active ontology (CSV / LaTeX / PDF export)",
+ "js": [
+  "view.js"
+ ]
+}

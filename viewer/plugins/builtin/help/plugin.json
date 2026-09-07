@@ -1,0 +1,9 @@
+{
+ "name": "help",
+ "title": "Help",
+ "version": "built-in",
+ "description": "Reference tables: DL / Fuzzy DL notation, FuzzyDL and Manchester keywords, SWRL built-ins, SPARQL prefixes",
+ "js": [
+  "view.js"
+ ]
+}

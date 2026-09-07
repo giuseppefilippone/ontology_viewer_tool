@@ -123,14 +123,39 @@ function infRefreshPages() {
 // ---------- Reasoner tab card ----------
 /** "Start" button: POST /api/inference/run {engine} then poll the status. @returns {void} */
 function infStart(engine) {
-	// engine: explicit (reasoner menu) or the card select, else the last run / HermiT
-	engine = engine || ($('#infeng') && $('#infeng').value) || (INF.tbox && INF.tbox.engine) || 'hermit';
+	// engine: explicit (reasoner menu) or the card select, else the configured default / last run / HermiT
+	engine =
+		engine || ($('#infeng') && $('#infeng').value) || (INF.tbox && INF.tbox.engine) || uiConfig.reasoner_engine || 'hermit';
 	INF.engine = engine;
 	if ($('#infstatus')) $('#infstatus').textContent = 'starting…';
-	post('/api/inference/run', { engine }).then((r) => {
+	post('/api/inference/run', { engine, timeout: uiConfig.reasoner_timeout || undefined }).then((r) => {
 		if (!r.started && $('#infstatus')) $('#infstatus').textContent = r.reason || 'not started';
 		infPoll();
 	});
+}
+/** Reasoner menu → Configure…: default engine and timeout, persisted in ui_config. @returns {void} */
+function rmenuConfigure() {
+	openForm(
+		'Configure the reasoner',
+		[
+			{
+				name: 'engine',
+				label: 'Default engine',
+				type: 'html',
+				html: `<label>Default engine</label><select name="engine" style="width:100%"><option value="hermit" ${(uiConfig.reasoner_engine || 'hermit') === 'hermit' ? 'selected' : ''}>HermiT</option><option value="pellet" ${uiConfig.reasoner_engine === 'pellet' ? 'selected' : ''}>Pellet</option></select>`,
+			},
+			{ name: 'timeout', label: 'Timeout in seconds (default 600)', value: String(uiConfig.reasoner_timeout || 600) },
+		],
+		(v) => {
+			const engine = document.querySelector('#modalbox [name=engine]').value;
+			const timeout = Math.max(10, parseInt(v.timeout, 10) || 600);
+			uiConfig.reasoner_engine = engine;
+			uiConfig.reasoner_timeout = timeout;
+			INF.engine = engine;
+			return post('/api/ui_config', { reasoner_engine: engine, reasoner_timeout: timeout });
+		},
+		'Used by Start reasoner / Synchronize and by the inference of single individuals.'
+	);
 }
 /**
  * Body of the Reasoner menu (Protégé-like): engine radios, start / stop, status, inferred-view shortcuts.
@@ -139,7 +164,7 @@ function infStart(engine) {
  */
 function rmenuBody() {
 	const t = INF.tbox;
-	const eng = INF.engine || (t && t.engine) || 'hermit';
+	const eng = INF.engine || (t && t.engine) || uiConfig.reasoner_engine || 'hermit';
 	INF.engine = eng; // so "Start reasoner" runs the engine shown checked even if the radios are untouched
 	const radio = (v, label) =>
 		`<label class="rmi"><input type="radio" name="rmeng" value="${v}" ${eng === v ? 'checked' : ''}
@@ -150,17 +175,20 @@ function rmenuBody() {
 		radio('pellet', 'Pellet') +
 		`<div class="rms"></div>
 		<div class="rmi" onclick="menusClose(); infStart(INF.engine)">${ic('play')} Start reasoner</div>
+		<div class="rmi ${t && t.stale ? '' : 'off'}" onclick="if(${!!(t && t.stale)}){menusClose(); infStart('${t ? t.engine : ''}');}"
+			title="Re-run the same engine because the index changed since the classification">${ic('refresh')} Synchronize</div>
 		<div class="rmi ${t ? '' : 'off'}" onclick="if(${!!t}){menusClose(); infStop();}">${ic('close')} Stop and discard</div>
+		<div class="rmi" onclick="menusClose(); rmenuConfigure()">${ic('edit')} Configure…</div>
 		<div class="rms"></div>
-		<div class="rmi" onclick="menusClose(); document.querySelector('#maintabs [data-mt=reasoner]').click()">${ic('next')} Open the Inferred view…</div>
+		<div class="rmi" onclick="menusClose(); document.querySelector('#maintabs [data-mt=reasoner]')?.click()">${ic('next')} Open the Inferred view…</div>
 		<div class="rmi ${t ? '' : 'off'}" onclick="if(${!!t}){menusClose(); rmenuInferredTree();}">${ic('next')} Inferred class hierarchy</div>
 		<div class="rmh">${t ? `${infEngineName()} · ${t.seconds}s · ${esc(t.when)}${t.stale ? ' · stale' : ''}` : 'no inferred result'}</div>`
 	);
 }
 /** Menu entry "Inferred class hierarchy": Entities tab, Classes sidebar, inferred view (Protégé's Class hierarchy (inferred)). */
 function rmenuInferredTree() {
-	document.querySelector('#maintabs [data-mt=entities]').click();
-	document.querySelector('#tabs [data-tab=tree]').click();
+	document.querySelector('#maintabs [data-mt=entities]')?.click();
+	document.querySelector('#tabs [data-tab=tree]')?.click();
 	const v = $('#viewsel');
 	if (v && v.value !== 'inferred') {
 		v.value = 'inferred';

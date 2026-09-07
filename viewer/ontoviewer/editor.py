@@ -109,6 +109,8 @@ def connect():
         id INTEGER PRIMARY KEY, ts REAL, op TEXT, graph TEXT, s TEXT, p TEXT,
         o TEXT, is_lit INT, dt TEXT, lang TEXT, extra TEXT)"""
     )
+    # covering index for the scope filters (declared_in): older indexes may lack it
+    c.execute("CREATE INDEX IF NOT EXISTS i_pog ON stmt(p, o_id, graph, s)")
     c.execute(
         """CREATE TABLE IF NOT EXISTS axiom_ann(
         s INT, p INT, o_id INT, o_lit TEXT, prop INT, value TEXT, graph TEXT)"""
@@ -150,7 +152,10 @@ def declaring_graph(c, iri):
 
 
 def _journal(c, op, graph, s, p=None, o=None, is_lit=0, dt=None, lang=None, extra=None):
-    """Append one row to the `changes` journal (see the module docstring for the ops); `extra` is JSON-encoded."""
+    """Append one row to the `changes` journal (see the module docstring for the ops); `extra` is JSON-encoded.
+    A new edit outside undo/redo invalidates the redo stack (``REDO``)."""
+    if not _UNDO_REDO["on"]:
+        REDO.clear()
     c.execute(
         "INSERT INTO changes(ts,op,graph,s,p,o,is_lit,dt,lang,extra) VALUES(?,?,?,?,?,?,?,?,?,?)",
         (time.time(), op, graph, s, p, o, is_lit, dt, lang, json.dumps(extra) if extra else None),
@@ -657,55 +662,99 @@ def list_changes(c):
     return [dict(r) for r in c.execute("SELECT * FROM changes ORDER BY id").fetchall()]
 
 
-def discard(c):
-    """Revert the db by undoing the journal in reverse order.
+def _revert_change(c, ch):
+    """Undo one journal row on the db (no journaling).
 
-    add ↔ remove are inverted without journaling; renames are applied backwards on
-    `nodes.iri`; `raw_remove` rows restore the `axiom_ann` rows they saved. Ops that only
-    matter at save time (raw, anon_remove, block_drop) need no undo. Node rows of anonymous
-    individuals left without any statement (created in the session) are dropped. Clears the
-    journal and commits.
+    add ↔ remove are inverted; renames are applied backwards on `nodes.iri`; `raw_remove` rows
+    restore the `axiom_ann` rows they saved. Ops that only matter at save time (raw without an
+    axiom annotation, anon_remove, block_drop) need no undo.
     """
-    for ch in reversed(list_changes(c)):
-        o_iri = None if ch["is_lit"] else ch["o"]
+    o_iri = None if ch["is_lit"] else ch["o"]
+    lit = ch["o"] if ch["is_lit"] else None
+    if ch["op"] == "add":
+        remove_triple(c, ch["s"], ch["p"], o_iri, lit, ch["graph"], journal=False)
+    elif ch["op"] == "remove":
+        add_triple(c, ch["graph"], ch["s"], ch["p"], o_iri, lit, ch["dt"], ch["lang"], journal=False)
+    elif ch["op"] == "rename":
+        i = node_id(c, ch["o"])
+        if i is not None:
+            c.execute("UPDATE nodes SET iri=? WHERE id=?", (ch["s"], i))
+    elif ch["op"] == "rename_ns":
+        # swap the prefixes back: s = old namespace, o = new one
+        c.execute(
+            "UPDATE nodes SET iri = ? || SUBSTR(iri, ?) WHERE iri LIKE ? || '%'",
+            (ch["s"], len(ch["o"]) + 1, ch["o"]),
+        )
+    elif ch["op"] in ("raw", "raw_remove") and ch["extra"] and json.loads(ch["extra"]).get("axiom"):
+        ex = json.loads(ch["extra"])
+        si, pi = node_id(c, ch["s"]), node_id(c, ch["p"]) if ch["p"] else None
+        oi = None if ch["is_lit"] else node_id(c, ch["o"])
         lit = ch["o"] if ch["is_lit"] else None
-        if ch["op"] == "add":
-            remove_triple(c, ch["s"], ch["p"], o_iri, lit, ch["graph"], journal=False)
-        elif ch["op"] == "remove":
-            add_triple(c, ch["graph"], ch["s"], ch["p"], o_iri, lit, ch["dt"], ch["lang"], journal=False)
-        elif ch["op"] == "rename":
-            i = node_id(c, ch["o"])
-            if i is not None:
-                c.execute("UPDATE nodes SET iri=? WHERE id=?", (ch["s"], i))
-        elif ch["op"] == "rename_ns":
-            # swap the prefixes back: s = old namespace, o = new one
+        if ch["op"] == "raw_remove":
+            for prop, value in ex.get("prev", []):
+                c.execute("INSERT INTO axiom_ann VALUES(?,?,?,?,?,?,?)", (si, pi, oi, lit, prop, value, ch["graph"]))
+        elif ex.get("prop") is not None:  # raw: drop the annotation row the edit inserted
             c.execute(
-                "UPDATE nodes SET iri = ? || SUBSTR(iri, ?) WHERE iri LIKE ? || '%'",
-                (ch["s"], len(ch["o"]) + 1, ch["o"]),
+                "DELETE FROM axiom_ann WHERE s=? AND p=? AND o_id IS ? AND o_lit IS ? AND prop=? AND value=?",
+                (si, pi, oi, lit, ex["prop"], ex["value"]),
             )
-        elif ch["op"] in ("raw", "raw_remove") and ch["extra"] and json.loads(ch["extra"]).get("axiom"):
-            ex = json.loads(ch["extra"])
-            si, pi = node_id(c, ch["s"]), node_id(c, ch["p"]) if ch["p"] else None
-            oi = None if ch["is_lit"] else node_id(c, ch["o"])
-            lit = ch["o"] if ch["is_lit"] else None
-            if ch["op"] == "raw_remove":
-                for prop, value in ex.get("prev", []):
-                    c.execute(
-                        "INSERT INTO axiom_ann VALUES(?,?,?,?,?,?,?)", (si, pi, oi, lit, prop, value, ch["graph"])
-                    )
-            elif ex.get("prop") is not None:  # raw: drop the annotation row the edit inserted
-                c.execute(
-                    "DELETE FROM axiom_ann WHERE s=? AND p=? AND o_id IS ? AND o_lit IS ? AND prop=? AND value=?",
-                    (si, pi, oi, lit, ex["prop"], ex["value"]),
-                )
-    # anonymous individuals created in the session have no statement left: drop their node rows
-    # (correlated EXISTS: index lookups per candidate, no materialisation of the statement table)
+
+
+def _drop_orphan_anon(c):
+    """Drop node rows of anonymous individuals left without any statement (created in the session).
+
+    Correlated EXISTS: index lookups per candidate, no materialisation of the statement table.
+    """
     c.execute(
         """DELETE FROM nodes WHERE kind='anon' AND NOT EXISTS (SELECT 1 FROM stmt WHERE s=nodes.id)
            AND NOT EXISTS (SELECT 1 FROM stmt WHERE o_id=nodes.id)"""
     )
+
+
+def discard(c):
+    """Revert the db by undoing the journal in reverse order (see ``_revert_change``).
+
+    Clears the journal and commits.
+    """
+    for ch in reversed(list_changes(c)):
+        _revert_change(c, ch)
+    _drop_orphan_anon(c)
     c.execute("DELETE FROM changes")
     c.commit()
+
+
+def undo_last(c):
+    """Undo the newest logical change: the last journal row, or — when it belongs to a grouped
+    edit (``extra.group``, e.g. one OWL expression journaled as many triples) — the whole
+    trailing group. Reverts the rows, deletes them from the journal and commits.
+
+    Returns the number of journal rows undone (0 when the journal is empty).
+    """
+    rows = list_changes(c)
+    if not rows:
+        return 0
+    gid = json.loads(rows[-1]["extra"]).get("group") if rows[-1]["extra"] else None
+    tail = []
+    for ch in reversed(rows):
+        g = json.loads(ch["extra"]).get("group") if ch["extra"] else None
+        if ch is rows[-1] or (gid is not None and g == gid):
+            tail.append(ch)
+        else:
+            break
+    _UNDO_REDO["on"] = True
+    try:
+        for ch in tail:  # already newest-first
+            _revert_change(c, ch)
+    finally:
+        _UNDO_REDO["on"] = False
+    _drop_orphan_anon(c)
+    c.execute(f"DELETE FROM changes WHERE id IN ({','.join('?' * len(tail))})", [ch["id"] for ch in tail])
+    c.commit()
+    if all(ch["op"] in ("add", "remove") for ch in tail):
+        REDO.append([dict(ch) for ch in reversed(tail)])  # original order, for redo_last
+    else:
+        REDO.clear()  # renames / raw ops cannot be re-applied mechanically
+    return len(tail)
 
 
 # ---------------------------------------------------------------- file writers
@@ -1250,3 +1299,58 @@ def save(c):
     now = time.time()
     os.utime(_db(), (now, now))  # db is in sync with the files just written
     return {"saved": results}
+
+
+def duplicate_entity(c, iri, new_iri):
+    """Duplicate an entity: every statement having it as SUBJECT is copied to ``new_iri`` as a
+    journaled add (declaration and rdf:type first, so the new node gets its kind; statements
+    where the entity is the object are NOT copied).  The adds share one ``extra.group``, so
+    ``undo_last`` reverts the whole duplication at once.  Raises ValueError for an unknown
+    source or an existing target.  Returns the number of statements copied.
+    """
+    si = node_id(c, iri)
+    if si is None:
+        raise ValueError(f"unknown entity: {iri}")
+    if node_id(c, new_iri) is not None:
+        raise ValueError(f"{new_iri} already exists")
+    rows = c.execute(
+        """SELECT p.iri AS p, no.iri AS o, s.o_lit AS lit, s.dt, s.lang, s.graph FROM stmt s
+               JOIN nodes p ON p.id=s.p LEFT JOIN nodes no ON no.id=s.o_id
+               WHERE s.s=? ORDER BY (p.iri != 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type')""",
+        (si,),
+    ).fetchall()
+    gid = f"dup{int(time.time() * 1000)}"
+    for r in rows:
+        add_triple(c, r["graph"], new_iri, r["p"], r["o"], r["lit"], r["dt"], r["lang"], extra={"group": gid})
+    return len(rows)
+
+
+# redo stack of undo_last: each entry = the journal rows of one undone change (original order).
+# In-memory (per server process); any NEW edit outside undo/redo clears it (see _journal).
+REDO = []
+_UNDO_REDO = {"on": False}  # guards _journal's redo-stack reset while undo/redo themselves run
+
+
+def redo_last(c):
+    """Re-apply the change most recently reverted by ``undo_last`` (adds / removes only; other
+    ops clear the stack when undone).  The re-applied rows are journaled again — with their
+    original ``extra.group`` — so a further undo works.  Returns the number of rows re-applied
+    (0 when there is nothing to redo).
+    """
+    if not REDO:
+        return 0
+    rows = REDO.pop()
+    _UNDO_REDO["on"] = True
+    try:
+        for ch in rows:
+            o_iri = None if ch["is_lit"] else ch["o"]
+            lit = ch["o"] if ch["is_lit"] else None
+            extra = json.loads(ch["extra"]) if ch["extra"] else None
+            if ch["op"] == "add":
+                add_triple(c, ch["graph"], ch["s"], ch["p"], o_iri, lit, ch["dt"], ch["lang"], extra=extra)
+            else:
+                remove_triple(c, ch["s"], ch["p"], o_iri, lit, ch["graph"])
+    finally:
+        _UNDO_REDO["on"] = False
+    c.commit()
+    return len(rows)

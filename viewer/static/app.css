@@ -1378,7 +1378,7 @@ a.ent:hover {
 	margin-top: 10px;
 }
 
-#modal input,
+#modal input:not([type='checkbox']):not([type='radio']):not([type='file']),
 #modal select,
 #modal textarea {
 	width: 100%;
@@ -2077,6 +2077,19 @@ table.metrics td:nth-child(n + 2) {
 	cursor: default;
 }
 
+/* pager inside a modal dialog: same control height as the dialog's inputs, page field not
+   full-width (the #modal input width:100% rule outranks a plain class selector) */
+#modal .pager2 .ibtn.pg {
+	width: var(--h-ctrl) !important;
+	height: var(--h-ctrl) !important;
+}
+
+#modal .pager2 input.pgn {
+	width: 72px !important;
+	height: var(--h-ctrl) !important;
+	margin-top: 0 !important;
+}
+
 .pager2 input.pgn {
 	width: 64px;
 	height: 28px;
@@ -2093,4 +2106,10 @@ table.metrics td:nth-child(n + 2) {
 /* colour legends: room between the text and the kind boxes */
 .legend .kind {
 	margin: 0 6px 0 6px;
+}
+
+/* second-level menu panel (flyout beside the open menu, Protégé-style) */
+#mbpanel2 {
+	max-height: 72vh;
+	overflow: auto;
 }

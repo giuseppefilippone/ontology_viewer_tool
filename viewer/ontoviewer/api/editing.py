@@ -415,3 +415,31 @@ def edit_negative(c, p):
     xml = editor.negative_xml(s, prop, p.get("o"), p.get("lit"), p.get("dt"))
     editor.add_raw_block(c, graph, xml, [], subject=s)
     return {"ok": True, "graph": graph}
+
+
+def edit_undo(c, p):
+    """Undo the newest pending change; a grouped edit (one OWL expression journaled as many
+    triples) is undone as a whole.
+
+    Payload: unused.  Returns {"undone": number of journal rows reverted} (0 = journal empty).
+    """
+    return {"undone": editor.undo_last(c)}
+
+
+def edit_duplicate(c, p):
+    """Duplicate an entity under a new IRI (Protégé: Edit → Duplicate selected entity).
+
+    Payload: "iri", "new_iri".  Every statement with the entity as subject is copied as a
+    pending change (types, labels, axioms, assertions; incoming statements are not).
+    Returns {"added": number of statements copied}.
+    """
+    return {"added": editor.duplicate_entity(c, p["iri"], p["new_iri"])}
+
+
+def edit_redo(c, p):
+    """Re-apply the change most recently reverted by /api/edit/undo (adds / removes only; the
+    redo stack is cleared by any other new edit).
+
+    Payload: unused.  Returns {"redone": number of journal rows re-applied} (0 = nothing).
+    """
+    return {"redone": editor.redo_last(c)}

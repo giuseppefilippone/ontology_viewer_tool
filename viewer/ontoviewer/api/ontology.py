@@ -27,6 +27,7 @@ import sqlite3
 import subprocess
 import sys
 import cgi
+from xml.sax.saxutils import escape
 
 from ontoviewer import config, editor, indexer, store, workspace
 from ontoviewer.store import db, short
@@ -126,6 +127,30 @@ def api_workspace(q):
     return {"current": ws, "recent": workspace.load_recent(), "db_exists": store.DB.exists()}
 
 
+# ontology formats other than RDF/XML accepted on open / upload (converted with rdflib)
+FOREIGN_EXTS = {".ttl": "turtle", ".n3": "n3", ".nt": "nt", ".jsonld": "json-ld"}
+
+
+def _ensure_rdfxml(path):
+    """Import path for foreign serializations: the editor and the indexer work on RDF/XML files,
+    so a Turtle / N3 / N-Triples / JSON-LD ontology is converted (rdflib) to an ``.owl`` sibling,
+    which is then opened instead. RDF/XML inputs pass through untouched; the converted file is
+    rewritten only when the source is newer. Returns the path to open.
+    """
+    p = pathlib.Path(path)
+    fmt = FOREIGN_EXTS.get(p.suffix.lower())
+    if not fmt:
+        return str(path)
+    import rdflib
+
+    out = p.with_suffix(".owl")
+    if not out.exists() or out.stat().st_mtime < p.stat().st_mtime:
+        g = rdflib.Graph()
+        g.parse(str(p), format=fmt)
+        g.serialize(destination=str(out), format="xml")
+    return str(out)
+
+
 def ws_open(c, p):
     """Open another ontology (entry file path(s)); resolve its import closure and
     build its index on the fly if not cached.
@@ -142,7 +167,12 @@ def ws_open(c, p):
     Returns {"workspace": {"dir", "files"}, "unresolved_imports": [iri…], "index_exists": bool,
     "reindex_started": bool}.
     """
-    paths = p.get("paths") or [p["path"]]
+    if p.get("url"):  # File → Open from URL…: download into uploads/ first
+        p = {**p, "path": str(_fetch_ontology(p["url"], config.UPLOADS_DIR))}
+    paths = [_ensure_rdfxml(x) for x in (p.get("paths") or [p["path"]])]
+    if p.get("add"):  # Open dialog "Add to the current workspace": one shared index (rebuilt)
+        cur = workspace.load()
+        paths = [str(pathlib.Path(cur["dir"]) / f) for f in cur["files"]] + paths
     ws, unresolved = workspace.resolve(paths)
     workspace.save(ws)
     indexer.refresh()
@@ -225,9 +255,11 @@ def api_ui_config(q):
 def ui_config_save(c, p):
     """Merge the allowed keys of the payload into data/ui_config.json.
 
-    Payload keys taken into account: tab_order, entity_tab_order, hidden_tabs (main tabs hidden
-    from the Window menu), count_annotations, sidebar_width, byclass_width, ent_tab ({entity kind:
-    active tab of the entity view}); anything else is ignored.  ``c`` is None (``NO_CONNECTION``).
+    Payload keys taken into account: tab_order, entity_tab_order, hidden_tabs /
+    hidden_entity_tabs (main tabs / Entities sidebar views hidden from the Window menu),
+    render_mode (+ legacy render_labels), reasoner_engine, reasoner_timeout, count_annotations,
+    sidebar_width, byclass_width, ent_tab ({entity kind: active tab of the entity view});
+    anything else is ignored.  ``c`` is None (``NO_CONNECTION``).
     Side effect: the file is rewritten.  Returns the complete configuration after the merge.
     """
     cfg = api_ui_config({})
@@ -235,7 +267,21 @@ def ui_config_save(c, p):
         {
             k: v
             for k, v in p.items()
-            if k in ("tab_order", "entity_tab_order", "hidden_tabs", "count_annotations", "sidebar_width", "byclass_width", "ent_tab")
+            if k
+            in (
+                "tab_order",
+                "entity_tab_order",
+                "hidden_tabs",
+                "hidden_entity_tabs",
+                "render_labels",
+                "render_mode",
+                "reasoner_engine",
+                "reasoner_timeout",
+                "count_annotations",
+                "sidebar_width",
+                "byclass_width",
+                "ent_tab",
+            )
         }
     )
     json.dump(cfg, open(config.UI_CONFIG, "w"), indent=1)
@@ -286,7 +332,7 @@ def api_reindex():
     if (p is not None and p.poll() is None) or indexer.build_running():
         return {"started": False, "reason": "already running"}
     REBUILD["proc"] = subprocess.Popen(
-        [sys.executable, "-u", "indexer.py", "--force"],
+        [sys.executable, "-u", "-m", "ontoviewer.indexer", "--force"],
         cwd=config.VIEWER_DIR,
         stdout=open(config.BUILD_LOG, "w"),
         stderr=subprocess.STDOUT,
@@ -387,3 +433,597 @@ def api_ontology_iri(q):
     if not iri:
         return {"error": "no <owl:Ontology rdf:about=…> header found in the file"}
     return {"iri": iri, "file": path.name, "same_dir": path.resolve().parent == workspace.ont_dir().resolve()}
+
+
+def module_new(c, p):
+    """Create an empty ontology module (RDF/XML skeleton) in the workspace and register it.
+
+    Payload: "name" (file name, .owl appended when missing), optional "iri" (ontology IRI;
+    default derived from the file name).  Raises ValueError for a bad name or an existing file.
+    ``c`` is None (``NO_CONNECTION``): the file only becomes part of the index at the next
+    rebuild (the index-status poller reports the workspace as stale).
+    Side effects: the file is written, workspace.json / recent.json updated.
+    Returns {"file", "iri"}.
+    """
+    name = (p.get("name") or "").strip()
+    if not name.endswith(".owl"):
+        name += ".owl"
+    if not re.fullmatch(r"[\w.-]+\.owl", name):
+        raise ValueError("file name must contain only letters, digits, _ . - and end in .owl")
+    ws = workspace.load()
+    f = pathlib.Path(ws["dir"]) / name
+    if f.exists():
+        raise ValueError(f"{name} already exists in the workspace")
+    iri = (p.get("iri") or "").strip() or f"http://www.semanticweb.org/ontologies/{name[:-4]}"
+    f.write_text(
+        f"""<?xml version="1.0"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xml:base="{escape(iri)}">
+  <owl:Ontology rdf:about="{escape(iri)}"/>
+</rdf:RDF>
+""",
+        encoding="utf-8",
+    )
+    ws["files"].append(name)
+    workspace.save(ws)
+    return {"file": name, "iri": iri}
+
+
+def api_serialize(c, p):
+    """Serialize one workspace module with rdflib and stage it for download.
+
+    Payload: "graph" (module file name), "fmt": turtle (default) | xml | nt | n3 | json-ld.
+    ``c`` is None.
+    Side effect: the full serialization is written to the exports dir (fetch it with
+    GET /api/export_file?name=<name>).  Returns {"name", "triples", "text" (capped at 500 kB),
+    "truncated"}.
+    """
+    fmt = p.get("fmt") or "turtle"
+    exts = {"turtle": ".ttl", "xml": ".owl", "nt": ".nt", "n3": ".n3", "json-ld": ".jsonld"}
+    if fmt not in exts:
+        raise ValueError("fmt must be turtle | xml | nt | n3 | json-ld")
+    import rdflib
+
+    ws = workspace.load()
+    f = pathlib.Path(ws["dir"]) / pathlib.Path(p["graph"]).name
+    if not f.is_file():
+        raise FileNotFoundError(f"{f.name} not found in the workspace")
+    g = rdflib.Graph()
+    g.parse(str(f))
+    text = g.serialize(format=fmt)
+    name = f.stem + exts[fmt]
+    (config.EXPORTS_DIR / name).write_text(text, encoding="utf-8")
+    cap = 500_000
+    return {"name": name, "triples": len(g), "text": text[:cap], "truncated": len(text) > cap}
+
+
+def api_diff(c, p):
+    """Difference list between two ontology files of the workspace (BNode-safe: rdflib
+    isomorphic comparison, Protégé's Ontology comparison → Difference list).
+
+    Payload: "a" and "b" (file names of the workspace or of data/compare/; a module's
+    ``<file>.bak`` backup written by Save is accepted too), or just "graph" = compare that
+    module against its own .bak.  ``c`` is None.  Raises FileNotFoundError for a missing file.
+
+    The differing triples are grouped by subject entity and classified like Protégé's
+    Ontology Differences view: "created" (the subject only exists in A), "deleted" (only in
+    B), "modified" (in both).  Returns {"a", "b", "b_time" (mtime of b), "counts": {created,
+    deleted, modified}, "added_total" / "removed_total" (triples only in A / only in B),
+    "entities": [{"name" (prefixed), "iri", "status", "new": [triple…], "baseline":
+    [triple…] (N3, first 80 each), "new_total", "baseline_total"}…] (first 400, created →
+    deleted → modified, alphabetical), "entities_total"}.
+    """
+    import time as _time
+
+    import rdflib
+    from rdflib.compare import graph_diff, to_isomorphic
+
+    a_name = pathlib.Path(p.get("a") or p["graph"]).name
+    b_name = pathlib.Path(p.get("b") or (p["graph"] + ".bak")).name
+    if not re.fullmatch(r"[\w.-]+", a_name) or not re.fullmatch(r"[\w.-]+", b_name):
+        raise ValueError("bad file name")
+
+    def load(name):
+        f = _resolve_onto_file(name)
+        g = rdflib.Graph()
+        g.parse(str(f), format=FOREIGN_EXTS.get(f.suffix.lower(), "xml"))
+        return g, f
+
+    fa, fb = _resolve_onto_file(a_name), _resolve_onto_file(b_name)
+    key = (a_name, b_name, fa.stat().st_mtime, fb.stat().st_mtime)
+    if _DIFF_CACHE.get("key") != key:  # compute once; paging / searching reuse the cache
+        ga, _ = load(a_name)
+        gb, _ = load(b_name)
+        _, in_a, in_b = graph_diff(to_isomorphic(ga), to_isomorphic(gb))
+        nm = ga.namespace_manager
+        RDFNS, RDFSNS, OWLNS = rdflib.RDF, rdflib.RDFS, rdflib.OWL
+        # every rdfs:label of the two ontologies: entities are displayed by label, like Protégé
+        labels = {}
+        for g in (gb, ga):  # A wins on conflicts
+            for s_, o_ in g.subject_objects(RDFSNS.label):
+                labels[s_] = str(o_)
+        for g in (in_b, in_a):  # labels of unmatched blank nodes only exist in the diff graphs
+            for s_, o_ in g.subject_objects(RDFSNS.label):
+                labels.setdefault(s_, str(o_))
+        KIND_DECL = {
+            OWLNS.Class: "Class",
+            RDFSNS.Datatype: "Datatype",
+            OWLNS.ObjectProperty: "ObjectProperty",
+            OWLNS.DatatypeProperty: "DataProperty",
+            OWLNS.AnnotationProperty: "AnnotationProperty",
+            OWLNS.NamedIndividual: "Individual",
+            OWLNS.Ontology: "Ontology",
+        }
+        PRED_WORD = {
+            RDFSNS.subClassOf: "SubClassOf",
+            OWLNS.equivalentClass: "EquivalentTo",
+            OWLNS.disjointWith: "DisjointWith",
+            RDFSNS.subPropertyOf: "SubPropertyOf",
+            OWLNS.equivalentProperty: "EquivalentTo",
+            OWLNS.inverseOf: "InverseOf",
+            RDFSNS.domain: "Domain",
+            RDFSNS.range: "Range",
+            RDFNS.type: "Type",
+            RDFSNS.label: "Label",
+            RDFSNS.comment: "Comment",
+        }
+
+        def disp(x):
+            """Protégé-like display of one named term: label, else local name; literals capped."""
+            if isinstance(x, rdflib.URIRef):
+                return labels.get(x) or short(str(x))
+            lit = x.n3(nm)
+            return lit if len(lit) <= 160 else lit[:157] + "…"
+
+        from collections import defaultdict
+
+        def fold_side(diff_g, full_g):
+            """One side of the diff with the anonymous structures FOLDED back into the class /
+            range expressions they encode (owl2-mapping-to-rdf): unionOf → "(A or B)",
+            restrictions → "(p some C)", facet lists → "decimal[>= 0, <= 100]", rdf:Lists
+            collected — instead of one pseudo-entity per blank node / list cell.
+            Returns (by_named: URIRef → [axiom text…], orphans: [folded text…])."""
+            by_s = defaultdict(list)
+            for s_, p_, o_ in diff_g:
+                by_s[s_].append((p_, o_))
+            consumed = set()
+
+            def value(n, pr):
+                for p_, o_ in by_s.get(n, []):
+                    if p_ == pr:
+                        return o_
+                return full_g.value(n, pr)  # partially matched structure: complete it from the full graph
+
+            def rdf_list(n, depth):
+                out = []
+                while n is not None and n != RDFNS.nil:
+                    if isinstance(n, rdflib.BNode):
+                        consumed.add(n)
+                    out.append(expr(value(n, RDFNS.first), depth))
+                    n = value(n, RDFNS.rest)
+                return [x for x in out if x is not None]
+
+            def expr(n, depth=0):
+                if n is None:
+                    return None
+                if not isinstance(n, rdflib.BNode):
+                    return disp(n)
+                consumed.add(n)
+                if depth > 8:
+                    return "…"
+                v = lambda pr: value(n, pr)
+                if v(OWLNS.unionOf) is not None:
+                    return "(" + " or ".join(rdf_list(v(OWLNS.unionOf), depth + 1)) + ")"
+                if v(OWLNS.intersectionOf) is not None:
+                    return "(" + " and ".join(rdf_list(v(OWLNS.intersectionOf), depth + 1)) + ")"
+                if v(OWLNS.complementOf) is not None:
+                    return f"(not {expr(v(OWLNS.complementOf), depth + 1)})"
+                if v(OWLNS.oneOf) is not None:
+                    return "{" + ", ".join(rdf_list(v(OWLNS.oneOf), depth + 1)) + "}"
+                if v(OWLNS.inverseOf) is not None:
+                    return f"inverse({expr(v(OWLNS.inverseOf), depth + 1)})"
+                if v(OWLNS.onProperty) is not None:  # owl:Restriction
+                    pr = expr(v(OWLNS.onProperty), depth + 1)
+                    for key, word in (
+                        (OWLNS.someValuesFrom, "some"),
+                        (OWLNS.allValuesFrom, "only"),
+                        (OWLNS.hasValue, "value"),
+                    ):
+                        if v(key) is not None:
+                            return f"({pr} {word} {expr(v(key), depth + 1)})"
+                    for key, word in (
+                        (OWLNS.qualifiedCardinality, "exactly"),
+                        (OWLNS.minQualifiedCardinality, "min"),
+                        (OWLNS.maxQualifiedCardinality, "max"),
+                        (OWLNS.cardinality, "exactly"),
+                        (OWLNS.minCardinality, "min"),
+                        (OWLNS.maxCardinality, "max"),
+                    ):
+                        if v(key) is not None:
+                            q = v(OWLNS.onClass) or v(OWLNS.onDataRange)
+                            return f"({pr} {word} {v(key)}" + (f" {expr(q, depth + 1)})" if q is not None else ")")
+                    if v(OWLNS.hasSelf) is not None:
+                        return f"({pr} Self)"
+                    return f"({pr} restriction)"
+                if v(OWLNS.onDatatype) is not None:  # datatype restriction with facets
+                    facets = []
+                    for cell_txt, cell in _facet_cells(v(OWLNS.withRestrictions)):
+                        facets.append(cell_txt)
+                    return f"{expr(v(OWLNS.onDatatype), depth + 1)}[{', '.join(facets)}]"
+                if v(RDFNS.first) is not None:  # a bare list reached as a root
+                    return "(" + ", ".join(rdf_list(n, depth + 1)) + ")"
+                pairs = by_s.get(n, [])
+                if pairs:  # unknown shape: inline its outgoing arcs
+                    return "[" + "; ".join(f"{disp(p_)} {expr(o_, depth + 1)}" for p_, o_ in pairs[:6]) + "]"
+                return "(anonymous)"
+
+            def _facet_cells(n):
+                while n is not None and n != RDFNS.nil:
+                    if isinstance(n, rdflib.BNode):
+                        consumed.add(n)
+                    cell = value(n, RDFNS.first)
+                    if isinstance(cell, rdflib.BNode):
+                        consumed.add(cell)
+                        for p_, o_ in by_s.get(cell, []) or [(pp, oo) for pp, oo in full_g.predicate_objects(cell)]:
+                            yield f"{short(str(p_))} {disp(o_)}", cell
+                    n = value(n, RDFNS.rest)
+
+            SKIP_STRUCT = {
+                OWLNS.unionOf, OWLNS.intersectionOf, OWLNS.complementOf, OWLNS.oneOf, OWLNS.inverseOf,
+                OWLNS.onProperty, OWLNS.someValuesFrom, OWLNS.allValuesFrom, OWLNS.hasValue, OWLNS.onClass,
+                OWLNS.onDataRange, OWLNS.onDatatype, OWLNS.withRestrictions, RDFNS.first, RDFNS.rest,
+                OWLNS.qualifiedCardinality, OWLNS.minQualifiedCardinality, OWLNS.maxQualifiedCardinality,
+                OWLNS.cardinality, OWLNS.minCardinality, OWLNS.maxCardinality, OWLNS.hasSelf,
+            }
+            by_named = defaultdict(list)
+            # 1) axioms of the NAMED subjects, blank-node objects folded to expressions
+            for s_, prs in by_s.items():
+                if isinstance(s_, rdflib.BNode):
+                    continue
+                for p_, o_ in prs:
+                    if p_ == RDFNS.type and o_ in KIND_DECL:
+                        by_named[s_].append(f"{KIND_DECL[o_]}: {disp(s_)}")
+                    else:
+                        by_named[s_].append(f"{disp(s_)} {PRED_WORD.get(p_) or disp(p_)} {expr(o_, 1)}")
+            # 2) anonymous structures whose ROOT is not referenced by any named diff axiom: walk
+            # every blank subject up its incoming blank arcs to the root of its structure; roots
+            # already folded inline (object of a named triple) are excluded, the rest is shown
+            # once, folded (owl2-mapping-to-rdf shapes: unions, restrictions, lists, facets…)
+            named_objs = set()
+            parent = {}
+            for s_, prs in by_s.items():
+                for _, o_ in prs:
+                    if isinstance(o_, rdflib.BNode):
+                        parent.setdefault(o_, s_)
+                        if not isinstance(s_, rdflib.BNode):
+                            named_objs.add(o_)
+
+            def root_of(n):
+                seen = set()
+                while n in parent and isinstance(parent[n], rdflib.BNode) and n not in seen:
+                    seen.add(n)
+                    n = parent[n]
+                return n
+
+            roots = set()
+            for s_ in by_s:
+                if isinstance(s_, rdflib.BNode):
+                    r = root_of(s_)
+                    if r not in named_objs:
+                        roots.add(r)
+            orphans = []
+            for r in roots:
+                txt = expr(r, 0)
+                if txt and txt != "(anonymous)":
+                    orphans.append(txt)
+            return by_named, orphans
+
+        named_a, orph_a = fold_side(in_a, ga)
+        named_b, orph_b = fold_side(in_b, gb)
+        entities, counts = [], {"created": 0, "deleted": 0, "modified": 0}
+        for s in set(named_a) | set(named_b):
+            status = (
+                "modified"
+                if (s, None, None) in ga and (s, None, None) in gb
+                else ("created" if (s, None, None) in ga else "deleted")
+            )
+            counts[status] += 1
+            entities.append(
+                {
+                    "name": str(s),
+                    "label": labels.get(s),
+                    "iri": str(s),
+                    "anon": False,
+                    "status": status,
+                    "new": sorted(named_a.get(s, [])),
+                    "baseline": sorted(named_b.get(s, [])),
+                    "new_total": len(named_a.get(s, [])),
+                    "baseline_total": len(named_b.get(s, [])),
+                }
+            )
+        # folded anonymous expressions whose root is not referenced by any named axiom of the diff
+        for txts, status in ((orph_a, "created"), (orph_b, "deleted")):
+            for txt in sorted(set(txts)):
+                counts[status] += 1
+                entities.append(
+                    {
+                        "name": txt if len(txt) <= 140 else txt[:137] + "…",
+                        "label": None,
+                        "iri": None,
+                        "anon": True,
+                        "status": status,
+                        "new": [txt] if status == "created" else [],
+                        "baseline": [txt] if status == "deleted" else [],
+                        "new_total": 1 if status == "created" else 0,
+                        "baseline_total": 1 if status == "deleted" else 0,
+                    }
+                )
+        order = {"created": 0, "deleted": 1, "modified": 2}
+        entities.sort(key=lambda e: (order[e["status"]], e["anon"], e["name"]))
+        _DIFF_CACHE.update(
+            {"key": key, "entities": entities, "counts": counts, "added": len(in_a), "removed": len(in_b)}
+        )
+    ents, counts = _DIFF_CACHE["entities"], _DIFF_CACHE["counts"]
+    q = (p.get("q") or "").strip().lower()
+    if q:  # search over the display name, the IRI and the axiom texts
+        ents = [
+            e
+            for e in ents
+            if q in e["name"].lower()
+            or q in (e["label"] or "").lower()
+            or q in (e["iri"] or "").lower()
+            or any(q in ax.lower() for ax in e["new"])
+            or any(q in ax.lower() for ax in e["baseline"])
+        ]
+    per = 100
+    pages = max(1, -(-len(ents) // per))
+    page = min(max(int(p.get("page") or 0), 0), pages - 1)
+    sl = [{**e, "new": e["new"][:80], "baseline": e["baseline"][:80]} for e in ents[page * per : (page + 1) * per]]
+    return {
+        "a": a_name,
+        "b": b_name,
+        "b_time": _time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(fb.stat().st_mtime)),
+        "counts": counts,
+        "added_total": _DIFF_CACHE["added"],
+        "removed_total": _DIFF_CACHE["removed"],
+        "entities": sl,
+        "filtered_total": len(ents),
+        "page": page,
+        "pages": pages,
+    }
+
+
+def api_merge(c, p):
+    """Merge workspace modules into a new module file (Protégé: Refactor → Merge ontologies).
+
+    Payload: "files": [module file name…] (at least two), "name" (target file, .owl appended
+    when missing), optional "iri" (ontology IRI of the merged module).  ``c`` is None.
+    The union of the sources is computed with rdflib; their ``owl:Ontology`` headers (imports
+    and header annotations included) are dropped and replaced by one new header, so the merged
+    module is self-contained.  The sources are not touched.  Raises ValueError for a bad
+    target name, an existing target or fewer than two sources.
+    Side effects: the merged .owl is written to the workspace, workspace.json updated (the
+    index reports stale until the next rebuild).  Returns {"file", "iri", "triples"}.
+    """
+    import rdflib
+    from rdflib import RDF, URIRef
+    from rdflib.namespace import OWL
+
+    files = p.get("files") or []
+    if len(files) < 2:
+        raise ValueError("select at least two modules to merge")
+    name = (p.get("name") or "").strip()
+    if not name.endswith(".owl"):
+        name += ".owl"
+    if not re.fullmatch(r"[\w.-]+\.owl", name):
+        raise ValueError("file name must contain only letters, digits, _ . - and end in .owl")
+    ws = workspace.load()
+    wdir = pathlib.Path(ws["dir"])
+    out = wdir / name
+    if out.exists():
+        raise ValueError(f"{name} already exists in the workspace")
+    g = rdflib.Graph()
+    for f in files:
+        src = _resolve_onto_file(pathlib.Path(f).name)
+        g.parse(str(src), format=FOREIGN_EXTS.get(src.suffix.lower(), "xml"))
+    for s in list(g.subjects(RDF.type, OWL.Ontology)):
+        g.remove((s, None, None))
+    iri = (p.get("iri") or "").strip() or f"http://www.semanticweb.org/ontologies/{name[:-4]}"
+    g.add((URIRef(iri), RDF.type, OWL.Ontology))
+    g.serialize(destination=str(out), format="xml")
+    ws["files"].append(name)
+    workspace.save(ws)
+    return {"file": name, "iri": iri, "triples": len(g)}
+
+
+def api_server_log(q):
+    """Tail of the server log (viewer/data/viewer.log, written by start_viewer.sh).
+
+    No query parameters.  Returns {"file", "exists", "log": last 400 lines ("" when the server
+    was started without the launcher script)}.
+    """
+    f = config.DATA_DIR / "viewer.log"
+    if not f.is_file():
+        return {"file": str(f), "exists": False, "log": ""}
+    return {"file": str(f), "exists": True, "log": "\n".join(f.read_text(errors="replace").splitlines()[-400:])}
+
+
+_DIFF_CACHE = {}  # last computed diff (key, entities, counts, added, removed): paging and search reuse it
+
+
+# external ontologies added to the Comparison / Merge views (URL fetch / upload)
+COMPARE_DIR = config.DATA_DIR / "compare"
+COMPARE_EXTS = (".owl", ".rdf", ".xml", ".ttl", ".n3", ".nt", ".jsonld")
+
+
+def _resolve_onto_file(name):
+    """A file usable by the Comparison / Merge views: looked up in the workspace directory
+    (modules and their .bak backups) first, then in data/compare/ (external ontologies).
+    Raises FileNotFoundError with a hint when missing.
+    """
+    wdir = pathlib.Path(workspace.load()["dir"])
+    for base in (wdir, COMPARE_DIR):
+        f = base / name
+        if f.is_file():
+            return f
+    hint = " (the .bak appears after the first Save of the module)" if name.endswith(".bak") else ""
+    raise FileNotFoundError(f"{name} not found in the workspace or among the added ontologies{hint}")
+
+
+def diff_files(q):
+    """Files available to the Comparison view: only what actually exists.
+
+    No query parameters.  Returns {"files": [{"name", "kind": module | backup | external}…]} =
+    the workspace modules, their existing ``.bak`` backups, and the external ontologies stored
+    in data/compare/ (added with /api/diff/fetch or /api/diff/upload).
+    """
+    ws = workspace.load()
+    wdir = pathlib.Path(ws["dir"])
+    out = []
+    for m in ws["files"]:
+        out.append({"name": m, "kind": "module"})
+        if (wdir / (m + ".bak")).is_file():
+            out.append({"name": m + ".bak", "kind": "backup"})
+    if COMPARE_DIR.is_dir():
+        for f in sorted(COMPARE_DIR.iterdir()):
+            if f.is_file() and f.suffix.lower() in COMPARE_EXTS:
+                out.append({"name": f.name, "kind": "external"})
+    return {"files": out}
+
+
+def _fetch_ontology(url, dest_dir, name=None):
+    """Download an ontology (50 MB cap) into ``dest_dir``; the target name defaults to the
+    basename of the URL path.  Returns the pathlib.Path of the saved file.
+    """
+    import urllib.parse
+    import urllib.request
+
+    url = (url or "").strip()
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("an http(s) URL is required")
+    name = (name or "").strip() or pathlib.Path(urllib.parse.urlparse(url).path).name or "remote.owl"
+    if not re.fullmatch(r"[\w.-]+", name):
+        raise ValueError("bad target file name")
+    if not name.lower().endswith(COMPARE_EXTS):
+        name += ".owl"
+    req = urllib.request.Request(
+        url, headers={"Accept": "application/rdf+xml, text/turtle;q=0.9, */*;q=0.8", "User-Agent": "ontology-viewer"}
+    )
+    with urllib.request.urlopen(req, timeout=60) as r:
+        data = r.read(50 * 1024 * 1024)
+    dest_dir.mkdir(exist_ok=True)
+    f = dest_dir / name
+    f.write_bytes(data)
+    return f
+
+
+def diff_fetch(c, p):
+    """Download an ontology from a URL into data/compare/ for the Comparison / Merge views.
+
+    Payload: "url" (http/https), optional "name" (target file name; default: the basename of
+    the URL path).  ``c`` is None.  The file is stored as-is; its format is recognised by
+    extension when compared.  Returns {"file": name}.
+    """
+    return {"file": _fetch_ontology(p.get("url"), COMPARE_DIR, p.get("name")).name}
+
+
+def handle_diff_upload(handler):
+    """Upload an ontology file (multipart field "file") into data/compare/ for the Comparison
+    view; read directly by ``ontoviewer.http`` like handle_upload.  Returns {"file": name}.
+    """
+    env = {"REQUEST_METHOD": "POST", "CONTENT_TYPE": handler.headers.get("Content-Type", "")}
+    form = cgi.FieldStorage(fp=handler.rfile, headers=handler.headers, environ=env)
+    if "file" not in form or not getattr(form["file"], "filename", None):
+        raise ValueError("no file")
+    name = pathlib.Path(form["file"].filename).name
+    if not re.fullmatch(r"[\w.-]+", name) or not name.lower().endswith(COMPARE_EXTS):
+        raise ValueError(f"the file must be one of {', '.join(COMPARE_EXTS)}")
+    COMPARE_DIR.mkdir(exist_ok=True)
+    (COMPARE_DIR / name).write_bytes(form["file"].file.read())
+    return {"file": name}
+
+
+def api_check_empty(q):
+    """Entities declared but never used (Protégé/Ontop: Check empty entities).
+
+    No query parameters.  An entity is empty when its only outgoing statements are the
+    declaration (rdf:type) and rdfs:label / rdfs:comment / skos annotations, and nothing
+    references it as object or predicate.  Returns {"entities": [{"iri", "kind", "label"}…]
+    (first 500, alphabetically), "truncated"}.
+    """
+    meta = (
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        "http://www.w3.org/2000/01/rdf-schema#label",
+        "http://www.w3.org/2000/01/rdf-schema#comment",
+        "http://www.w3.org/2004/02/skos/core#altLabel",
+        "http://www.w3.org/2004/02/skos/core#notation",
+    )
+    rows = db().execute(
+        f"""SELECT n.iri, n.kind, n.label FROM nodes n
+            WHERE n.kind IN ('class','objprop','dataprop','annprop','individual','datatype')
+              AND NOT EXISTS (SELECT 1 FROM stmt s JOIN nodes p ON p.id=s.p
+                              WHERE s.s=n.id AND p.iri NOT IN ({','.join('?' * len(meta))}))
+              AND NOT EXISTS (SELECT 1 FROM stmt s WHERE s.o_id=n.id)
+              AND NOT EXISTS (SELECT 1 FROM stmt s WHERE s.p=n.id)
+            ORDER BY n.iri LIMIT 501""",
+        meta,
+    ).fetchall()
+    return {
+        "entities": [{"iri": r["iri"], "kind": r["kind"], "label": r["label"]} for r in rows[:500]],
+        "truncated": len(rows) > 500,
+    }
+
+
+def api_indexes(q):
+    """The SQLite indexes on disk (data/index_*.db), one per workspace ever opened.
+
+    No query parameters.  Each entry is labelled through the current + recent workspaces when
+    the hash matches (older ones show as unknown).  Returns {"indexes": [{"file", "size",
+    "mtime", "current", "dir", "files"}…]} sorted by size (largest first).
+    """
+    import time as _time
+
+    cur = workspace.load()
+    known = {}
+    for w in [cur] + workspace.load_recent():
+        known.setdefault(f"index_{workspace.key(w)}.db", w)
+    cur_name = f"index_{workspace.key(cur)}.db"
+    out = []
+    for f in config.DATA_DIR.glob("index_*.db"):
+        w = known.get(f.name)
+        st = f.stat()
+        out.append(
+            {
+                "file": f.name,
+                "size": st.st_size,
+                "mtime": _time.strftime("%Y-%m-%d %H:%M", _time.localtime(st.st_mtime)),
+                "current": f.name == cur_name,
+                "dir": w["dir"] if w else None,
+                "files": w["files"] if w else None,
+            }
+        )
+    out.sort(key=lambda e: -e["size"])
+    return {"indexes": out}
+
+
+def index_remove(c, p):
+    """Delete one index file (never the one of the current workspace; the .owl files are not
+    touched — reopening that workspace just rebuilds it).
+
+    Payload: "file" (index_<hash>.db).  ``c`` is None.  Returns {"removed", "bytes"}.
+    """
+    name = pathlib.Path(p["file"]).name
+    if not re.fullmatch(r"index_[0-9a-f]{10}\.db", name):
+        raise ValueError("bad index file name")
+    if name == f"index_{workspace.key()}.db":
+        raise ValueError("cannot delete the index of the current workspace (open another one first)")
+    f = config.DATA_DIR / name
+    if not f.is_file():
+        raise FileNotFoundError(f"{name} not found")
+    size = f.stat().st_size
+    f.unlink()
+    for suf in ("-wal", "-shm"):
+        (config.DATA_DIR / (name + suf)).unlink(missing_ok=True)
+    return {"removed": name, "bytes": size}

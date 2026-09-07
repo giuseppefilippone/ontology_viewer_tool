@@ -1,3 +1,6 @@
+// Built-in view "Reasoner" — self-contained package (delete this folder to remove the view).
+// Shared helpers come from the kit bundle (static/js): see PLUGINS.md.
+
 // reasoner.js — Reasoner tab: fuzzy (fuzzy_dl_owl2) and classic (HermiT/Pellet) runs on temporary KBs, work-dir cleanup.
 //
 // Overview
@@ -235,3 +238,10 @@ function runClassic() {
 			$('#rcstatus').textContent = 'failed: ' + e;
 		});
 }
+
+registerView({
+	id: 'reasoner',
+	title: 'Reasoner',
+	tooltip: 'Run the fuzzy (FuzzyDL) and classic (HermiT / Pellet) reasoners on the schema plus chosen individuals; classify the closure for the inferred view',
+	render: () => renderReasoner(),
+});

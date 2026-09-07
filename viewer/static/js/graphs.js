@@ -1,85 +1,6 @@
-// graphs.js — Graph tab (TBox graph with several layouts and the UML view), knowledge graph of individuals, Individuals by class.
-
-// ---------- Individuals by class ----------
-let bcState = { cls: null, page: 0, q: '', expandAll: true }; // expandAll: initial state of the sub-trees
-/**
- * Entry point of the Individuals-by-class tab: a resizable column with the class tree in the sidebar style
- * (filter box, "Expand all", rows with toggle / dot / name / instance count) and, on the right, the paginated
- * direct instances of the selected class (bcLoad). Built once (data-ready flag).
- * Side effects: replaces #tab-byclass; GET /api/tree; binds the autocomplete of #bcfilter and the resize handle.
- */
-function renderByClass() {
-	const box = $('#tab-byclass');
-	if (box.dataset.ready) {
-		return;
-	}
-	box.dataset.ready = '1';
-	box.innerHTML = `<div class="card" style="max-width:none"><h2>Individuals by class <span class="count" id="bccount"></span></h2>
-    <div style="display:flex;gap:16px;margin-top:8px;min-height:60vh">
-      <div id="bccol" class="sidepanel" style="width:${uiConfig.byclass_width || 360}px">
-        <div class="listsearch"><input id="bcfilter" placeholder="Filter classes…" autocomplete="off" oninput="bcFilter(this.value)"></div>
-        <div id="bctree" class="treebox"><span class="dt">loading…</span></div>
-      </div>
-      <div id="bcresize" class="vresize" title="drag to resize the class tree"></div>
-      <div style="flex:1;min-width:0"><div id="bclist"><span class="dt">select a class to list its asserted instances (direct instances of the class; subclasses are listed under their own node)</span></div></div></div></div>`;
-	api('/api/tree', {}).then((d) => {
-		window._bcTree = d.roots;
-		drawBcTree('');
-	});
-	attachAutocomplete($('#bcfilter'), {
-		single: true,
-		keywords: false,
-		kinds: ['class'],
-		onPick: (it) => it.iri && bcSelect(it.iri) // a picked suggestion selects the class
-	});
-	makeResizable($('#bcresize'), $('#bccol'), 'byclass_width', 200);
-}
-/**
- * Draw the class tree into #bctree with the shared sidebar builder (treeHtml). A non-empty filter keeps
- * only the branches whose name contains it (those branches are shown expanded).
- * @param {string} filter Substring typed in #bcfilter (case-insensitive).
- */
-function drawBcTree(filter) {
-	const f = filter.toLowerCase();
-	// prune the tree to the matching branches (a node stays when it matches or one of its descendants does)
-	const prune = (n) => {
-		const kids = (n.children || []).map(prune).filter(Boolean);
-		return !f || n.name.toLowerCase().includes(f) || kids.length ? { ...n, children: kids } : null;
-	};
-	const roots = (window._bcTree || []).map(prune).filter(Boolean);
-	const expanded = bcState.expandAll || !!f;
-	$('#bctree').innerHTML = roots.length
-		? treeHtml(roots, 'class', {
-				click: (iri) => `bcSelect('${iri}')`,
-				expanded,
-				expandJs: "bcState.expandAll=this.checked;treeSetAll(this.checked,'#bctree')",
-				selected: bcState.cls
-			})
-		: '<span class="dt" style="margin:8px">no classes</span>';
-}
-/** Debounced (250 ms) redraw of the tree while typing in #bcfilter. */
-function bcFilter(v) {
-	clearTimeout(window._bcT);
-	window._bcT = setTimeout(() => drawBcTree(v.trim()), 250);
-}
-/** Select a class (highlight its row, reset the page) and list its instances. */
-function bcSelect(iri) {
-	bcState.cls = iri;
-	bcState.page = 0;
-	drawBcTree($('#bcfilter').value.trim());
-	bcLoad();
-}
-function bcLoad() {
-	const iri = bcState.cls;
-	if (!iri) return;
-	api('/api/instances', { iri, page: bcState.page, graph: '' }).then((d) => {
-		const pages = Math.max(1, Math.ceil(d.total / 200));
-		$('#bclist').innerHTML =
-			`<div class="ptitle" style="margin-top:0">${esc(short(iri))} — ${d.total.toLocaleString('en')} instances ${pagerHtml(bcState.page, pages, 'bcState.page={p};bcLoad()')}
-      <span class="expand" style="margin-left:auto" onclick="openEntity('${esc(iri)}')">open class</span></div>
-      <div style="columns:2;column-gap:20px">${d.items.map((n) => `<div class="item" style="break-inside:avoid" onclick="openEntity('${esc(n.iri)}')">${dot(n.kind, n.fuzzy)}${esc(n.name)}</div>`).join('') || '<span class="dt">no direct instances</span>'}</div>`;
-	});
-}
+// graphs.js — shared GRAPH ENGINE kit (state, layout, drawing, SVG/DOT/TikZ exports, toolbar);
+// the Individuals-by-class / Knowledge-graph / Graph views live in plugins/builtin/<id>/view.js.
+// Graph tab (TBox graph with several layouts and the UML view), knowledge graph of individuals, Individuals by class.
 
 /**
  * "Actions" group of a graph toolbar (Reset layout / Fit / SVG), shared by the ontology graph and the knowledge graph.
@@ -94,153 +15,62 @@ function graphActionsHtml(st) {
 		`<button class="btn" title="Forget the positions dragged by hand and compute the selected layout again (force-directed: a new arrangement)" onclick="${st || 'gState'}.pos={};${call('layoutGraph')};${call('fitGraph')};${call('drawGraph')}">${ic('refresh')} Reset layout</button>` +
 		`<button class="btn" title="Zoom and pan so that the whole graph fits the drawing area" onclick="${call('fitGraph')};${call('drawGraph')}">${ic('fit')} Fit</button>` +
 		`<button class="btn" title="Download the current drawing as an SVG file (positions, colours and labels as shown)" onclick="${call('exportGraphSvg')}">${ic('download')} SVG</button>` +
+		`<button class="btn" title="Download the shown nodes and edges as a Graphviz .dot file (structure only, lay it out with dot/neato)" onclick="${call('exportGraphDot')}">${ic('download')} DOT</button>` +
+		`<button class="btn" title="Download the shown graph as a LaTeX TikZ picture using the current layout positions" onclick="${call('exportGraphTikz')}">${ic('download')} TikZ</button>` +
 		`</div></div>`
 	);
 }
-
-// ---------- Knowledge graph of individuals ----------
-let kgState = {
-	kg: true,
-	svg: '#kgsvg',
-	count: '#kgcount',
-	mode: 'force',
-	focus: '',
-	hops: 1,
-	data: null,
-	show: { objprop: true, labels: true, edgeLabels: true },
-	pos: {},
-	view: { x: 0, y: 0, k: 1 },
-	drag: null,
-	start: '',
-	cls: '',
-	depth: 2,
-	limit: 150
-};
-function renderKg() {
-	const box = $('#tab-kg');
-	if (box.dataset.ready) {
-		return;
+/** Shown nodes/edges of a graph state (positions included) for the text exports. @returns {{nodes, E, pos, base}|null} */
+function graphExportData(S) {
+	if (!S.data) {
+		alert('Load the graph first');
+		return null;
 	}
-	box.dataset.ready = '1';
-	const cb = (k, l) =>
-		`<label class="chk"><input type="checkbox" ${kgState.show[k] ? 'checked' : ''} onchange="kgState.show['${k}']=this.checked;drawGraph(kgState)"> ${l}</label>`;
-	box.innerHTML = `<div class="card" style="max-width:none"><h2>Knowledge graph of individuals <span class="count" id="kgcount"></span></h2>
-    <div class="gbar">
-      <div class="ggroup"><div class="gcap">Scope</div><div class="grow"><select id="kgscope" onchange="kgState.whole=this.value"><option value="">neighbourhood of a start node</option><option value="active">whole graph: active ontology (first N individuals)</option><option value="closure">whole graph: closure (first N individuals)</option></select></div></div>
-      <div class="ggroup"><div class="gcap">Start individual</div><div class="grow"><div class="picker"><input id="kgstart" placeholder="search individual…" style="width:220px"><div class="res"></div></div></div></div>
-      <div class="ggroup"><div class="gcap">or class (sample)</div><div class="grow"><div class="picker"><input id="kgcls" placeholder="search class…" style="width:190px"><div class="res"></div></div></div></div>
-      <div class="ggroup"><div class="gcap">Depth</div><div class="grow"><select id="kgdepth" onchange="kgState.depth=+this.value" title="BFS depth from the start; 'component' follows the assertions until the connected component is exhausted (bounded by Max nodes)"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="99">connected component</option></select></div></div>
-      <div class="ggroup"><div class="gcap">Max nodes</div><div class="grow"><select id="kglimit" onchange="kgState.limit=+this.value"><option>60</option><option selected>150</option><option>300</option><option>600</option><option>1500</option><option>3000</option></select></div></div>
-      <div class="ggroup"><div class="gcap">&nbsp;</div><div class="grow"><button class="btn primary" onclick="loadKg()" title="Load the graph: the neighbourhood of the start individual (or a sample of the class) up to the chosen depth and number of nodes">${ic('play')} Load</button></div></div>
-      <div class="gsep"></div>
-      <div class="ggroup"><div class="gcap">Layout</div><div class="grow"><select onchange="kgState.mode=this.value;layoutGraph(kgState);fitGraph(kgState);drawGraph(kgState)"><option value="force">Force-directed</option><option value="radial">Radial (by distance from start)</option><option value="hierarchy">Layers (by distance)</option><option value="circle">Circular</option><option value="grid">Grid (alphabetical)</option></select>
-<label class="chk"><input type="checkbox" onchange="kgState.uml=this.checked;layoutGraph(kgState);fitGraph(kgState);drawGraph(kgState)"> boxes with types</label></div></div>
-      <div class="ggroup"><div class="gcap">Labels</div><div class="grow">${cb('labels', 'nodes')} ${cb('edgeLabels', 'edges')}</div></div>
-      <div class="gsep"></div>
-      ${graphActionsHtml('kgState')}
-    </div>
-    <div class="dt" style="margin-top:6px">Nodes = individuals (colour by distance from the start: <span style="color:#b3552b">●</span> start, <span style="color:#3457b0">●</span> 1, <span style="color:#2a9d8f">●</span> 2, <span style="color:#8a6d1a">●</span> 3), edges = object property assertions (both directions, labelled). Hover a node for its types; click to open it. The ABox has 400k individuals: the graph is a neighbourhood or a sample, not the whole ABox.</div>
-    <div id="kghint" class="hint" style="margin-top:10px">Pick a <b>start individual</b> (or a class to sample from), choose depth and size, then press <b>Load</b>. Drag nodes, wheel to zoom, click a node to open it.</div>
-    <div style="margin-top:10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);height:70vh;overflow:hidden;position:relative"><svg id="kgsvg" width="100%" height="100%" style="display:block;cursor:grab"></svg></div></div>`;
-	const clear = (el) => {
-		el.value = '';
-		el.dataset.iri = '';
-		el.title = '';
+	const { nodes, edges } = visibleGraph(S);
+	const withPos = nodes.filter((n) => S.pos[n.id]);
+	const idx = new Set(withPos.map((n) => n.id));
+	return {
+		nodes: withPos,
+		E: edges.filter((e) => idx.has(e.s) && idx.has(e.o)),
+		pos: S.pos,
+		base: (S.kg ? 'kg_' : 'graph_') + String(S.data.graph || 'closure').replace(/\.owl$/, ''),
 	};
-	bindPicker($('#kgstart'), 'individual', (iri) => {
-		kgState.start = iri;
-		kgState.cls = '';
-		clear($('#kgcls'));
-		$('#kgscope').value = '';
-		kgState.whole = '';
-		loadKg();
-	});
-	bindPicker($('#kgcls'), 'class', (iri) => {
-		kgState.cls = iri;
-		kgState.start = '';
-		clear($('#kgstart'));
-		$('#kgscope').value = '';
-		kgState.whole = '';
-		loadKg();
-	});
-	// the field edited last wins: typing in one clears the other; Enter loads (typed names are resolved by name)
-	[
-		['#kgstart', '#kgcls'],
-		['#kgcls', '#kgstart']
-	].forEach(([a, b]) => {
-		$(a).addEventListener('input', () => {
-			if ($(a).value.trim()) {
-				clear($(b));
-				kgState.start = kgState.cls = '';
-			}
-		});
-		$(a).addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') loadKg();
-		});
-	});
-	bindGraphEvents($('#kgsvg'), kgState);
-	if (selIri && curEntity && curEntity.d.node.kind === 'individual') {
-		kgState.start = selIri;
-		$('#kgstart').value = short(selIri);
-		$('#kgstart').dataset.iri = selIri;
-		loadKg();
-	}
 }
-function resolveName(el, kind) {
-	// IRI of a picker/text field: picked IRI, pasted IRI, or exact local name lookup
-	const v = el.value.trim();
-	if (!v) return Promise.resolve('');
-	if (el.dataset.iri && short(el.dataset.iri) === v) return Promise.resolve(el.dataset.iri);
-	if (v.startsWith('http')) return Promise.resolve(v);
-	return api('/api/search', { q: v }).then((d) => {
-		const hit =
-			d.items.find((n) => n.kind === kind && n.name === v) ||
-			d.items.find((n) => n.kind === kind && n.name.toLowerCase() === v.toLowerCase());
-		if (hit) {
-			el.dataset.iri = hit.iri;
-			el.title = hit.iri;
-			return hit.iri;
-		}
-		return '';
-	});
+/** "DOT" button: Graphviz export of the shown graph (structure + labels; no positions). @returns {void} */
+function exportGraphDot(S = gState) {
+	const d = graphExportData(S);
+	if (!d) return;
+	const q = (v) => JSON.stringify(String(v));
+	const eopt = (e) =>
+		e.type === 'equivalentClass' ? ', dir=none, style=dashed' : e.type === 'disjointWith' ? ', dir=none, style=dotted' : '';
+	const txt =
+		'digraph G {\n  rankdir=BT;\n  node [shape=box, fontsize=10];\n' +
+		d.nodes.map((n) => `  ${q(n.id)} [label=${q(n.name || n.id)}];`).join('\n') +
+		'\n' +
+		d.E.map((e) => `  ${q(e.s)} -> ${q(e.o)} [label=${q(e.label || e.type)}${eopt(e)}];`).join('\n') +
+		'\n}\n';
+	downloadText(d.base + '.dot', txt);
 }
-async function loadKg() {
-	$('#kghint')?.remove(); // first load: drop the placeholder text
-	const st = $('#kgstart'),
-		cl = $('#kgcls');
-	const whole = kgState.whole === 'active' ? fdlFile() || '' : kgState.whole === 'closure' ? 'closure' : '';
-	const start = whole ? '' : await resolveName(st, 'individual'),
-		cls = whole || start ? '' : await resolveName(cl, 'class');
-	if (!whole && !start && !cls) {
-		$('#kgcount').textContent =
-			st.value.trim() || cl.value.trim()
-				? '— unknown name: pick it from the suggestions'
-				: '— choose a start individual or a class (or a whole-graph scope)';
-		return;
-	}
-	kgState.start = start;
-	kgState.cls = cls;
-	$('#kgcount').textContent = '— loading…';
-	const params = whole
-		? { whole, limit: kgState.limit }
-		: start
-			? { iri: start, depth: kgState.depth, limit: kgState.limit }
-			: { cls, depth: kgState.depth, limit: kgState.limit };
-	api('/api/kg', params).then((d) => {
-		if (d.error) {
-			$('#kgcount').textContent = '— ' + d.error;
-			return;
-		}
-		d.edges.forEach((e) => (e.type = 'objprop'));
-		d.graph = whole ? 'kg_' + whole.replace(/\.owl$/, '') : 'kg';
-		kgState.data = d;
-		kgState.pos = {};
-		layoutGraph(kgState);
-		fitGraph(kgState);
-		drawGraph(kgState);
-		$('#kgcount').textContent =
-			`— ${d.nodes.length} individuals, ${d.edges.length} assertions${d.total_individuals != null ? ` (of ${d.total_individuals.toLocaleString('en')} in ${whole === 'closure' ? 'the closure' : whole}; edges among the shown individuals only)` : d.truncated ? ' (truncated: raise Max nodes)' : ''}`;
-	});
+/** "TikZ" button: LaTeX TikZ export of the shown graph with the current layout positions. @returns {void} */
+function exportGraphTikz(S = gState) {
+	const d = graphExportData(S);
+	if (!d) return;
+	const sc = (v) => (v / 100).toFixed(2); // 100 px = 1 TikZ unit
+	const nid = {};
+	d.nodes.forEach((n, i) => (nid[n.id] = 'n' + i));
+	const edge = (e) => {
+		const opt = e.type === 'equivalentClass' ? 'dashed' : e.type === 'disjointWith' ? 'dotted' : '->';
+		const lab = e.label ? ` node[midway, draw=none, font=\\tiny] {${texEsc(e.label)}}` : '';
+		return `  \\draw[${opt}] (${nid[e.s]}) -- (${nid[e.o]})${lab};`;
+	};
+	const txt =
+		`%% TikZ export of the ${S.kg ? 'knowledge' : 'class'} graph (current layout positions; requires \\usepackage{tikz})\n` +
+		'\\begin{tikzpicture}[every node/.style={draw, rounded corners, font=\\scriptsize, inner sep=2pt}, >=stealth]\n' +
+		d.nodes.map((n) => `  \\node (${nid[n.id]}) at (${sc(d.pos[n.id].x)}, ${sc(-d.pos[n.id].y)}) {${texEsc(n.name || String(n.id))}};`).join('\n') +
+		'\n' +
+		d.E.map(edge).join('\n') +
+		'\n\\end{tikzpicture}\n';
+	downloadText(d.base + '.tikz', txt);
 }
 
 // ---------- Graph tab: TBox graph of the active ontology / closure (force layout, plain SVG) ----------
@@ -275,124 +105,6 @@ let gState = {
 	view: { x: 0, y: 0, k: 1 },
 	drag: null
 };
-const GMODES = [
-	['hierarchy', 'Hierarchy (layers by subClassOf, top-down)'],
-	['radial', 'Radial (subClassOf depth on concentric rings)'],
-	['force', 'Force-directed'],
-	['circle', 'Circular (nodes on a ring, edges as chords)'],
-	['grid', 'Grid (alphabetical, by module)']
-];
-function renderGraph() {
-	ensureOnto(() => {
-		const box = $('#tab-graph');
-		if (!box.dataset.ready) {
-			box.dataset.ready = '1';
-			const cb = (k, l) =>
-				`<label class="chk"><input type="checkbox" ${gState.show[k] ? 'checked' : ''} onchange="gState.show['${k}']=this.checked;drawGraph()"> ${l}</label>`;
-			box.innerHTML = `<div class="card" style="max-width:none">
-      <h2>Ontology graph <span class="count" id="gcount"></span></h2>
-      <div class="gbar">
-<div class="ggroup"><div class="gcap">Scope</div><div class="grow"><select id="gscope" onchange="gState.scope=this.value;loadGraph()"><option value="active">active ontology</option><option value="closure">closure (all modules)</option></select></div></div>
-<div class="ggroup"><div class="gcap">Layout</div><div class="grow"><select id="gmode" onchange="gState.mode=this.value;layoutGraph();fitGraph();drawGraph()">${GMODES.map(([k, l]) => `<option value="${k}" ${k === gState.mode ? 'selected' : ''}>${l}</option>`).join('')}</select>
-  <label class="chk"><input type="checkbox" ${gState.uml ? 'checked' : ''} onchange="gState.uml=this.checked;layoutGraph();fitGraph();drawGraph()"> UML class boxes</label></div></div>
-<div class="gsep"></div>
-<div class="ggroup"><div class="gcap">Focus (subgraph from a node)</div><div class="grow"><div class="picker"><input id="gfocus" placeholder="class name…" style="width:210px" oninput="clearTimeout(window._gfT);window._gfT=setTimeout(()=>{gState.focus=this.value.trim();layoutGraph();fitGraph();drawGraph();},300)"><div class="res"></div></div>
-  <select id="ghops" onchange="gState.hops=+this.value;layoutGraph();fitGraph();drawGraph()" title="subgraph reachable from the focus node"><option value="1">1 hop</option><option value="2" selected>2 hops</option><option value="3">3 hops</option><option value="999">connected component</option></select></div></div>
-<div class="gsep"></div>
-<div class="ggroup"><div class="gcap">Edges</div><div class="grow">${cb('subClassOf', 'subClassOf')} ${cb('equivalentClass', 'equivalentClass')} ${cb('disjointWith', 'disjointWith')} ${cb('objprop', 'object properties')} ${cb('dataprop', 'data properties')}</div></div>
-<div class="ggroup"><div class="gcap">Labels</div><div class="grow">${cb('labels', 'nodes')} ${cb('edgeLabels', 'edges')}</div></div>
-<div class="gsep"></div>
-${graphActionsHtml('')}
-      </div>
-      <div class="dt legend" style="margin-top:6px">Legend: ${dot('class', true)} fuzzy class · ${dot('class')} class · <span style="color:${GCOL.datatype}">■</span> datatype · edges: <span style="color:${GCOL.subClassOf}">— subClassOf</span> · <span style="color:${GCOL.equivalentClass}">– – equivalentClass</span> · <span style="color:${GCOL.disjointWith}">· · disjointWith</span> · <span style="color:${GCOL.objprop}">→ object property</span> · <span style="color:${GCOL.dataprop}">→ data property</span>. UML boxes: name, <span style="color:#00796B">= equivalent</span>, attributes (data properties with range, {func}), <span style="color:#512DA8">⊑/≡ anonymous restrictions</span>; <span style="color:#3F51B5">▷ generalization</span>, labelled associations, {disjoint} dashed. Drag nodes, wheel to zoom, drag the background to pan, click a node to open it.</div>
-      <div id="gwrap" style="margin-top:10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);height:72vh;overflow:hidden;position:relative"><svg id="gsvg" width="100%" height="100%" style="display:block;cursor:grab"></svg></div></div>`;
-			bindGraphEvents($('#gsvg'), gState);
-			bindPicker($('#gfocus'), '', (iri, name) => {
-				gState.focus = name;
-				layoutGraph();
-				fitGraph();
-				drawGraph();
-			}); // autocomplete on the entities of the closure
-		}
-		loadGraph();
-	});
-}
-function bindGraphEvents(svg, S) {
-	svg.addEventListener(
-		'wheel',
-		(e) => {
-			e.preventDefault();
-			const r = svg.getBoundingClientRect(),
-				mx = e.clientX - r.left,
-				my = e.clientY - r.top,
-				v = S.view,
-				f = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-			v.x = mx - (mx - v.x) * f;
-			v.y = my - (my - v.y) * f;
-			v.k *= f;
-			drawGraph(S);
-		},
-		{ passive: false }
-	);
-	svg.addEventListener('mousedown', (e) => {
-		const n = e.target.closest('[data-node]');
-		const r = svg.getBoundingClientRect();
-		S.drag = {
-			id: n ? n.dataset.node : null,
-			x0: e.clientX,
-			y0: e.clientY,
-			moved: false,
-			vx: S.view.x,
-			vy: S.view.y,
-			px: n ? S.pos[n.dataset.node].x : 0,
-			py: n ? S.pos[n.dataset.node].y : 0
-		};
-	});
-	window.addEventListener('mousemove', (e) => {
-		const d = S.drag;
-		if (!d) return;
-		const dx = e.clientX - d.x0,
-			dy = e.clientY - d.y0;
-		if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
-		if (d.id) {
-			S.pos[d.id].x = d.px + dx / S.view.k;
-			S.pos[d.id].y = d.py + dy / S.view.k;
-		} else {
-			S.view.x = d.vx + dx;
-			S.view.y = d.vy + dy;
-		}
-		drawGraph(S);
-	});
-	window.addEventListener('mouseup', (e) => {
-		const d = S.drag;
-		S.drag = null;
-		if (d && d.id && !d.moved) {
-			const n = S.data.nodes.find((x) => String(x.id) === d.id);
-			if (n) {
-				document.querySelector('#maintabs [data-mt=entities]').click();
-				show(encodeURIComponent(n.iri));
-			}
-		}
-	});
-}
-function loadGraph() {
-	const g = gState.scope === 'active' ? fdlFile() : '';
-	$('#gcount').textContent = '— loading…';
-	api('/api/graph', { graph: g || '' }).then((d) => {
-		if (gState.scope === 'active' && !d.nodes.length) {
-			// e.g. an annotation-only module: fall back to the closure
-			gState.scope = 'closure';
-			$('#gscope').value = 'closure';
-			$('#gcount').textContent = `— ${esc(g)} declares no classes: showing the closure`;
-			return loadGraph();
-		}
-		gState.data = d;
-		gState.pos = {};
-		layoutGraph();
-		fitGraph();
-		drawGraph();
-	});
-}
 function visibleGraph(S = gState) {
 	const d = S.data,
 		sh = S.show;

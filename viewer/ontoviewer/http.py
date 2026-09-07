@@ -28,7 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from ontoviewer import api, bundle, config, editor, fdl_export, pdf, store
-from ontoviewer.api import ontology
+from ontoviewer.api import ontology, plugins
 
 # content types of the static files; anything else is served as octet-stream
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
@@ -100,6 +100,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, f.read_bytes(), MIME.get(f.suffix, "application/octet-stream"))
             else:
                 self._send(404, b"not found", "text/plain")
+        elif u.path.startswith("/plugins/"):  # files of installed plugins (plugins/custom/<name>/…)
+            f = (plugins.PLUGINS_DIR / u.path[len("/plugins/") :]).resolve()
+            if plugins.PLUGINS_DIR.resolve() in f.parents and f.is_file():
+                self._send(200, f.read_bytes(), MIME.get(f.suffix, "application/octet-stream"))
+            else:
+                self._send(404, b"not found", "text/plain")
+        elif u.path.startswith("/plugins-builtin/"):  # sources of the built-in views (?dev=1 mode)
+            f = (plugins.BUILTIN_DIR / u.path[len("/plugins-builtin/") :]).resolve()
+            if plugins.BUILTIN_DIR.resolve() in f.parents and f.is_file():
+                self._send(200, f.read_bytes(), MIME.get(f.suffix, "application/octet-stream"))
+            else:
+                self._send(404, b"not found", "text/plain")
         elif u.path == "/api/export_file":  # large export files (e.g. .fdl) streamed as a download
             # ?name=<file>: reduced to its basename so only files of the exports dir are reachable
             name = pathlib.Path(parse_qs(u.query).get("name", [""])[0]).name
@@ -136,6 +148,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/upload":  # multipart: the handler reads the body itself
             try:
                 res = ontology.handle_upload(self)
+            except Exception as e:
+                res = {"error": str(e)}
+            self._send(200, json.dumps(res).encode())
+            return
+        if path == "/api/plugins/install":  # multipart zip: the handler reads the body itself
+            try:
+                res = plugins.handle_install(self)
+            except Exception as e:
+                res = {"error": str(e)}
+            self._send(200, json.dumps(res).encode())
+            return
+        if path == "/api/diff/upload":  # multipart ontology for the Comparison / Merge views
+            try:
+                res = ontology.handle_diff_upload(self)
             except Exception as e:
                 res = {"error": str(e)}
             self._send(200, json.dumps(res).encode())

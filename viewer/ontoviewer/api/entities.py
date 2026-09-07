@@ -22,8 +22,43 @@ import sqlite3
 
 from rdflib.namespace import RDFS, OWL
 
-from ontoviewer import axioms, config, inference, workspace
+from ontoviewer import axioms, config, inference, store, workspace
 from ontoviewer.store import db, declared_in, fuzzy_ids, get_id, node_json, short
+
+
+_ORDER_CACHE = {}  # one entry: (kind, graph, active, db mtime) -> [node id…] by displayed name
+
+
+def _display_order(kind, graph):
+    """Ids of every entity of ``kind`` in the ``graph`` scope, sorted by the DISPLAYED name
+    (``prefix:local`` for imported entities, bare local name for the active ontology — see
+    store.display_name), cached per scope and index version."""
+    key = (kind, graph, getattr(store.REQUEST, "active", None), store.DB.stat().st_mtime)
+    if _ORDER_CACHE.get("key") == key:
+        return _ORDER_CACHE["ids"]
+    gsql, gpar = declared_in(graph)
+    rows = db().execute(f"SELECT id, iri FROM nodes WHERE kind=?{gsql}", (kind,) + gpar).fetchall()
+    # inlined display_name with the namespace→prefix lookup memoised: the closure has a handful
+    # of namespaces but hundreds of thousands of entities (the generic path took ~50 s here)
+    active = getattr(store.REQUEST, "active", None)
+    decl = store.declaring_files()
+    pfx = {}
+
+    def _nm(iri, nid):
+        cut = max(iri.rfind("#"), iri.rfind("/"))
+        local = iri[cut + 1 :] if cut > 0 else iri
+        if not active or cut <= 0 or decl.get(nid) == active:
+            return local
+        ns = iri[: cut + 1]
+        p = pfx.get(ns)
+        if p is None:
+            p = pfx[ns] = store.namespace_prefix(ns)
+        return f"{p}:{local}"
+
+    named = sorted((_nm(r["iri"], r["id"]).lower(), r["id"]) for r in rows)
+    _ORDER_CACHE.clear()  # keep only the last scope: the big kinds dominate the memory
+    _ORDER_CACHE.update({"key": key, "ids": [i for _, i in named]})
+    return _ORDER_CACHE["ids"]
 
 
 def api_list(q):
@@ -42,24 +77,35 @@ def api_list(q):
     kind = q.get("kind", ["individual"])[0]
     page = int(q.get("page", ["0"])[0])
     search = q.get("q", [""])[0]
-    gsql, gpar = declared_in(q.get("graph", [""])[0])
+    graph = q.get("graph", [""])[0]
     limit, off = config.PAGE_SIZE, page * config.PAGE_SIZE
     if search:
+        gsql, gpar = declared_in(graph)
         like = f"%{search}%"
         where = "kind=? AND (iri LIKE ? OR label LIKE ?)" + gsql
         par = (kind, like, like) + gpar
+        rows = (
+            db()
+            .execute(f"SELECT * FROM nodes WHERE {where} ORDER BY lname, iri LIMIT ? OFFSET ?", par + (limit, off))
+            .fetchall()
+        )
+        total = db().execute(f"SELECT COUNT(*) FROM nodes WHERE {where}", par).fetchone()[0]
+        items = [node_json(r) for r in rows]
     else:
-        where = "kind=?" + gsql
-        par = (kind,) + gpar
-    rows = (
-        db()
-        .execute(f"SELECT * FROM nodes WHERE {where} ORDER BY lname, iri LIMIT ? OFFSET ?", par + (limit, off))
-        .fetchall()
-    )
-    total = db().execute(f"SELECT COUNT(*) FROM nodes WHERE {where}", par).fetchone()[0]
-    items = [node_json(r) for r in rows]
+        # browsing (no filter): the whole kind ordered by the DISPLAYED name — the ontology
+        # prefix shown on imported entities included — via a per-scope cache of sorted ids
+        ids = _display_order(kind, graph)
+        total = len(ids)
+        page_ids = ids[off : off + limit]
+        items = []
+        if page_ids:
+            ph = ",".join("?" * len(page_ids))
+            got = {r["id"]: r for r in db().execute(f"SELECT * FROM nodes WHERE id IN ({ph})", page_ids).fetchall()}
+            items = [node_json(got[i]) for i in page_ids if i in got]
     builtins = {"datatype": config.BUILTIN_DATATYPES, "annprop": config.BUILTIN_ANNPROPS}.get(kind)
-    if builtins and not q.get("graph", [""])[0] and page == 0:  # OWL 2 / RDFS built-ins on page 0
+    # OWL 2 / RDFS / XSD built-ins on page 0: they belong to the language, not to a module,
+    # so they are listed under EVERY scope (closure, active ontology, single module)
+    if builtins and page == 0:
         have = {n["iri"] for n in items}
         extra = [
             b for b in builtins if b not in have and (not search or search.lower() in config.builtin_name(b).lower())
@@ -276,7 +322,8 @@ def api_instances(q):
     graph = q.get("graph", [""])[0]
     # unlike the other lists, `graph` filters the module of the rdf:type ASSERTION, not the one
     # declaring the individual (individuals are typically declared and typed in the same ABox file)
-    gsql, gpar = (" AND s.graph=?", (graph,)) if graph else ("", ())
+    _files = [x for x in str(graph).split(",") if x]
+    gsql, gpar = (f" AND s.graph IN ({','.join('?' * len(_files))})", tuple(_files)) if _files else ("", ())
     total = db().execute(f"SELECT COUNT(*) FROM stmt s WHERE s.p=? AND s.o_id=?{gsql}", (ti, ci) + gpar).fetchone()[0]
     rows = (
         db()
@@ -374,7 +421,9 @@ def api_tree(q=None):
         dict(
             db()
             .execute(
-                "SELECT o_id, COUNT(*) FROM stmt WHERE p=?" + (" AND graph=?" if graph else "") + " GROUP BY o_id",
+                "SELECT o_id, COUNT(*) FROM stmt WHERE p=?"
+                + (f" AND graph IN ({','.join('?' * len(gpar))})" if gpar else "")
+                + " GROUP BY o_id",
                 (ti,) + gpar,
             )
             .fetchall()
@@ -464,7 +513,7 @@ def api_tree(q=None):
                 db()
                 .execute(
                     f"SELECT COUNT(DISTINCT s) FROM stmt WHERE p=? AND o_id IN ({marks})"
-                    + (" AND graph=?" if graph else ""),
+                    + (f" AND graph IN ({','.join('?' * len(gpar))})" if gpar else ""),
                     (ti, *g) + gpar,
                 )
                 .fetchone()[0]

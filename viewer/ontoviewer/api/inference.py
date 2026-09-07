@@ -52,3 +52,30 @@ def inference_individual(c, p):
     {"error", …}); the call blocks for the duration of the reasoner run (seconds).
     """
     return inference.infer_individual(p["iri"], p.get("engine") or "hermit", int(p.get("timeout") or inference.TIMEOUT))
+
+
+def inference_export(c, p):
+    """Export the inferred TBox diff as a standalone ontology (Protégé: File → Export inferred
+    axioms as ontology).
+
+    Payload: unused.  ``c`` is None.  Raises ValueError when no inferred result exists.
+    Side effect: the RDF/XML file is written to the exports dir (fetch it with
+    GET /api/export_file?name=<name>).  Returns {"name", "axioms"}.
+    """
+    d = inference.load_tbox()
+    if not d.get("active"):
+        raise ValueError("no inferred result: start the reasoner first")
+    import rdflib
+    from rdflib import OWL, RDF, RDFS, Literal, URIRef
+
+    from ontoviewer import config
+
+    g = rdflib.Graph()
+    ont = URIRef("http://www.semanticweb.org/ontologies/inferred")
+    g.add((ont, RDF.type, OWL.Ontology))
+    g.add((ont, RDFS.comment, Literal(f"Axioms inferred by {d['engine']} on {d['when']} (asserted axioms excluded).")))
+    for a in d["axioms"]:
+        g.add((URIRef(a["s"]), URIRef(a["p"]), URIRef(a["o"])))
+    name = f"inferred_{d['engine']}.owl"
+    (config.EXPORTS_DIR / name).write_text(g.serialize(format="xml"), encoding="utf-8")
+    return {"name": name, "axioms": len(d["axioms"])}

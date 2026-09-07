@@ -1,0 +1,9 @@
+{
+ "name": "sparql",
+ "title": "SPARQL",
+ "version": "built-in",
+ "description": "Run SPARQL queries on the whole import closure through the SQLite index",
+ "js": [
+  "view.js"
+ ]
+}

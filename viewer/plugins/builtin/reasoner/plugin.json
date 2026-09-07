@@ -1,0 +1,9 @@
+{
+ "name": "reasoner",
+ "title": "Reasoner",
+ "version": "built-in",
+ "description": "Run the fuzzy (FuzzyDL) and classic (HermiT / Pellet) reasoners on the schema plus chosen individuals; classify the closure for the inferred view",
+ "js": [
+  "view.js"
+ ]
+}

@@ -1,0 +1,9 @@
+{
+ "name": "byclass",
+ "title": "Individuals by class",
+ "version": "built-in",
+ "description": "Class tree with the asserted direct instances of the selected class",
+ "js": [
+  "view.js"
+ ]
+}

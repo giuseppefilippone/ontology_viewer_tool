@@ -1,0 +1,9 @@
+{
+ "name": "kg",
+ "title": "Knowledge graph",
+ "version": "built-in",
+ "description": "Draw individuals and their object property assertions: neighbourhood of a start individual or a sample of a class",
+ "js": [
+  "view.js"
+ ]
+}

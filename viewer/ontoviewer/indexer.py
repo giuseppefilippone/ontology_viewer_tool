@@ -467,6 +467,7 @@ def build():
         CREATE INDEX i_s ON stmt(s);
         CREATE INDEX i_oid ON stmt(o_id) WHERE o_id IS NOT NULL;
         CREATE INDEX i_po ON stmt(p, o_id);
+        CREATE INDEX i_pog ON stmt(p, o_id, graph, s);
         CREATE INDEX i_ax ON axiom_ann(s);
         CREATE INDEX i_bref ON bnode_refs(ref);
         CREATE INDEX i_dt ON stmt(dt) WHERE dt IS NOT NULL;

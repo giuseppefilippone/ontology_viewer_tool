@@ -1,0 +1,9 @@
+{
+ "name": "dlquery",
+ "title": "DL Query",
+ "version": "built-in",
+ "description": "Ask a class expression in Manchester syntax: super / sub / equivalent classes and instances, from the index or with HermiT",
+ "js": [
+  "view.js"
+ ]
+}
