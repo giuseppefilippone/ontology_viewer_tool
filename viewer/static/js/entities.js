@@ -314,10 +314,11 @@ function fuzzySVG(type, p) {
  * curve, weighted bars, fuzzy logic name) followed by a collapsible <details> with the raw XML.
  * Datatypes use the domain of the current entity (window._curBounds, set by show()) when available.
  * "modified" datatypes get a placeholder <div id="mp…"> filled asynchronously by modifiedPreview().
- * @param {string} lit The fuzzyLabel XML literal.
+ * A datatype plot with known domain becomes an editable plot (draggable parameter handles).
+ * @param {string} lit The fuzzy annotation XML literal. @param {string} [graph] Module of the annotation.
  * @returns {string} HTML.
  */
-function fuzzyRender(lit) {
+function fuzzyRender(lit, graph) {
 	const f = parseFuzzy(lit);
 	const raw = `<details style="margin-top:4px"><summary class="expand">XML fuzzyOwl2</summary><pre class="lit dt">${esc(lit.trim())}</pre></details>`;
 	if (!f) return `<span class="lit">${esc(lit)}</span>`;
@@ -338,6 +339,8 @@ function fuzzyRender(lit) {
 			return `<span class="lit">${esc(lit)}</span>` + raw;
 		}
 		const bd = window._curBounds;
+		if (graph !== undefined && bd && bd.kmin != null && bd.kmax != null && FZ_MU[f.type])
+			return fzEditablePlot(f, bd, lit, graph) + raw;
 		const svg =
 			bd && bd.kmin != null && bd.kmax != null
 				? fuzzySVGdomain(f.type, Object.assign({}, f.p, { k1: bd.kmin, k2: bd.kmax }))
@@ -2941,6 +2944,100 @@ function fuzzySVGdomain(shape, p) {
 			.join('');
 	return `<svg width="${W}" height="${H}" style="background:#fcfdff;border:1px solid var(--line);border-radius:8px"><line x1="${L}" y1="${Y(1)}" x2="${W - R}" y2="${Y(1)}" stroke="#e4e8ee" stroke-dasharray="3 3"/><line x1="${L}" y1="${Y(0)}" x2="${W - R}" y2="${Y(0)}" stroke="#aab2bd"/><line x1="${L}" y1="${Y(0)}" x2="${L}" y2="${T}" stroke="#aab2bd"/><text x="${L - 6}" y="${+Y(1) + 4}" text-anchor="end" font-size="10" fill="#66727f">1</text><text x="${L - 6}" y="${+Y(0) + 4}" text-anchor="end" font-size="10" fill="#66727f">0</text><text x="${L}" y="${H - 3}" font-size="10" fill="#66727f">k1=${x0}</text><text x="${W - R}" y="${H - 3}" text-anchor="end" font-size="10" fill="#66727f">k2=${x1}</text><path d="${path} L${X(x1)} ${Y(0)} L${X(x0)} ${Y(0)} Z" fill="rgba(52,87,176,.12)"/><path d="${path}" fill="none" stroke="#3457b0" stroke-width="2.2"/>${ticks}<text x="${(L + W - R) / 2}" y="${H - 3}" text-anchor="middle" font-size="10" fill="#66727f">μ(x) — ${shape}</text></svg>`;
 }
+// ---------- draggable membership-function editor (plots of the entity page) ----------
+// membership degree of each shape parameter: where its handle sits on the plot
+const FZ_MU = {
+	leftshoulder: { a: 1, b: 0 },
+	rightshoulder: { a: 0, b: 1 },
+	triangular: { a: 0, b: 1, c: 0 },
+	trapezoidal: { a: 0, b: 1, c: 1, d: 0 },
+	crisp: { a: 1, b: 1 }
+};
+window._fzedit = {}; // state of the editable plots of the current entity page, by container id
+/**
+ * Editable membership plot: the domain SVG plus one draggable handle per shape parameter.
+ * Dragging moves a/b/c/d horizontally within [k1,k2] (order preserved); "save shape" replaces
+ * the fuzzy annotation as a pending change (undoable), "reset" restores the stored values.
+ */
+function fzEditablePlot(f, bd, lit, graph) {
+	const id = 'fz' + Math.random().toString(36).slice(2);
+	window._fzedit[id] = { shape: f.type, p: { ...f.p }, orig: { ...f.p }, k1: bd.kmin, k2: bd.kmax, lit, graph, s: selIri };
+	return `<div id="${id}" style="position:relative;width:430px">${fzPlotHtml(id)}</div>`;
+}
+/** Inner HTML of one editable plot (SVG + handles + save/reset row); re-rendered on every drag step. */
+function fzPlotHtml(id) {
+	const e = window._fzedit[id];
+	const L = 34,
+		T = 14,
+		iw = 430 - 34 - 14,
+		ih = 168 - 14 - 36;
+	const X = (x) => L + ((x - e.k1) / (e.k2 - e.k1 || 1)) * iw;
+	const handles = Object.keys(e.p)
+		.map(
+			(k) =>
+				`<span onpointerdown="fzDown(event,'${id}','${k}')" title="drag to move ${k}" style="position:absolute;left:${(X(e.p[k]) - 6).toFixed(1)}px;top:${(T + (1 - FZ_MU[e.shape][k]) * ih - 5).toFixed(1)}px;width:12px;height:12px;border-radius:50%;background:#3457b0;border:2px solid #fff;box-shadow:0 0 3px rgba(0,0,0,.4);cursor:ew-resize;touch-action:none"></span>`
+		)
+		.join('');
+	const dirty = JSON.stringify(e.p) !== JSON.stringify(e.orig);
+	return (
+		fuzzySVGdomain(e.shape, Object.assign({}, e.p, { k1: e.k1, k2: e.k2 })) +
+		handles +
+		(dirty
+			? `<div style="margin-top:2px"><button class="ibtn" onclick="fzApply('${id}')" title="Replace the membership function with the dragged shape (a pending change: save the files from the File menu)">save shape</button><button class="ibtn" onclick="fzReset('${id}')">reset</button> <span class="dt">${Object.entries(e.p)
+					.map(([k, v]) => `${k}=${v}`)
+					.join(' ')}</span></div>`
+			: '')
+	);
+}
+/** Pointer-down on a handle: horizontal drag until pointer-up, clamped to [k1,k2] and to the neighbour parameters. */
+function fzDown(ev, id, k) {
+	ev.preventDefault();
+	const e = window._fzedit[id];
+	const rect = document.querySelector(`#${id} svg`).getBoundingClientRect();
+	const L = 34,
+		iw = 430 - 34 - 14;
+	const r = e.k2 - e.k1,
+		dg = r >= 100 ? 1 : r >= 10 ? 2 : 3;
+	const move = (mv) => {
+		let x = e.k1 + ((mv.clientX - rect.left - L) / iw) * r;
+		x = +Math.min(e.k2, Math.max(e.k1, x)).toFixed(dg);
+		const ks = Object.keys(e.p),
+			i = ks.indexOf(k);
+		if (i > 0) x = Math.max(x, e.p[ks[i - 1]]);
+		if (i < ks.length - 1) x = Math.min(x, e.p[ks[i + 1]]);
+		e.p[k] = x;
+		document.getElementById(id).innerHTML = fzPlotHtml(id);
+	};
+	const up = () => {
+		document.removeEventListener('pointermove', move);
+		document.removeEventListener('pointerup', up);
+	};
+	document.addEventListener('pointermove', move);
+	document.addEventListener('pointerup', up);
+}
+/** "save shape": replace the fuzzy annotation of the entity with the dragged parameters (two journal ops). */
+function fzApply(id) {
+	const e = window._fzedit[id];
+	const attrs = Object.entries(e.p)
+		.map(([k, v]) => `${k}="${v}"`)
+		.join(' ');
+	const fl = `<fuzzyOwl2 fuzzyType="datatype">\n\t<Datatype type="${e.shape}" ${attrs}/>\n</fuzzyOwl2>\n`;
+	post('/api/edit/remove', { s: e.s, p: fuzzyPropIri(), lit: e.lit, graph: e.graph })
+		.then((r) => (r.error ? r : post('/api/edit/add', { s: e.s, p: fuzzyPropIri(), lit: fl, graph: e.graph })))
+		.then((r) => {
+			if (r.error) alert(r.error);
+			else {
+				refreshChanges();
+				show(e.s);
+			}
+		});
+}
+/** "reset": back to the stored shape. */
+function fzReset(id) {
+	const e = window._fzedit[id];
+	e.p = { ...e.orig };
+	document.getElementById(id).innerHTML = fzPlotHtml(id);
+}
 /**
  * Form to create a fuzzy modifier (an rdfs:Datatype with fuzzyType="modifier") or edit an existing one.
  * Fields: name/namespace (new only), module, type (linear c | triangular a,b,c), live preview (#fmprev / #fmval).
@@ -3474,7 +3571,7 @@ function individualRows(d, S, kind) {
 	const annRender = (g, v) =>
 		pred(g) +
 		('lit' in v
-			? `${v.lang ? `<span class="dt">[language: ${esc(v.lang)}]</span>` : ''}<div>${isFuzzyGroup(g) ? fuzzyRender(v.lit) : litRender({ ...v, lang: null })}</div>`
+			? `${v.lang ? `<span class="dt">[language: ${esc(v.lang)}]</span>` : ''}<div>${isFuzzyGroup(g) ? fuzzyRender(v.lit, v.graph) : litRender({ ...v, lang: null })}</div>`
 			: `<div>${valLink(v)}</div>`);
 	const ann = rowsOf(
 		groups((g) => !isFuzzyGroup(g) && (isAnnGroup(g) || ('lit' in g.values[0] && !isInd))),
