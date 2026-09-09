@@ -16,8 +16,8 @@ function renderFuzzyTab() {
 			annprop: 'Annotation property'
 		};
 		// intro card: total + colour legend
-		let h = `<div class="card" style="max-width:none"><h2>Fuzzy entities <span class="count">(${d.total} annotated <code>sdf:isFuzzy true</code>)</span></h2>
-      <div class="dt legend" style="margin-top:4px">Colour legend: ${dot('class', true)} fuzzy class · ${dot('class')} crisp class · ${dot('datatype', true)} fuzzy datatype · ${dot('datatype')} crisp datatype. Criterion: fuzzyLabel (datatype, modifiers, weighted/OWA concepts) or a class whose definition depends on fuzzy entities (TerritoryWith* bridge classes, composites).</div></div>`;
+		let h = `<div class="card" style="max-width:none"><h2>Fuzzy entities <span class="count">(${d.total} — <code>${esc((uiConfig.fuzzy_label === undefined ? 'fuzzyLabel' : uiConfig.fuzzy_label) || 'none: crisp ontology')}</code> annotation or equivalence)</span></h2>
+      <div class="dt legend" style="margin-top:4px">Colour legend: ${dot('class', true)} fuzzy class · ${dot('class')} crisp class · ${dot('datatype', true)} fuzzy datatype · ${dot('datatype')} crisp datatype. Criterion: the fuzzy annotation (datatype, modifiers, weighted/OWA concepts; the label is set in Ontology Info) or equivalence with an annotated entity (owl:equivalentClass / owl:equivalentProperty).</div></div>`;
 		for (const k of order) {
 			const items = G[k];
 			if (!items || !items.length) continue;
@@ -44,7 +44,7 @@ function renderFuzzyTab() {
 					list
 						.map(
 							(n) =>
-								`<div class="item" style="padding:2px 6px" onclick="document.querySelector('#maintabs [data-mt=entities]').click();show('${encodeURIComponent(n.iri)}')">${dot(n.kind, true)}${esc(n.name)}${n.label && n.label !== n.name ? ` <span class="dt">${esc(n.label)}</span>` : ''}</div>`
+								`<div class="item" style="padding:2px 6px" onclick="document.querySelector('#maintabs [data-mt=entities]').click();show('${encodeURIComponent(n.iri)}')">${dot(n.kind, true)}${esc(n.name)}${n.label && n.label !== n.name ? ` <span class="dt">${esc(n.label)}</span>` : ''}${n.via ? ` <span class="dt" title="fuzzy through equivalence">≡ ${esc(n.via.join(', '))}</span>` : ''}</div>`
 						)
 						.join('') +
 					`</div></div>`;
@@ -119,6 +119,6 @@ const METRIC_GROUPS = [
 registerView({
 	id: 'fuzzy',
 	title: 'Fuzzy',
-	tooltip: 'Every fuzzy entity of the workspace (sdf:isFuzzy) grouped by kind, with its fuzzy definition',
+	tooltip: 'Every fuzzy entity of the workspace (fuzzy annotation or equivalence with one) grouped by kind, with its fuzzy definition',
 	render: () => renderFuzzyTab(),
 });

@@ -322,7 +322,7 @@ def build_temp_ontology(
     # OWA/choquet <Name> elements must hold local names, not "Class(IRI)" functional syntax
     import re as _re
 
-    FL = rdflib.URIRef("http://www.semanticweb.org/ontologies/fuzzydl_ontology#fuzzyLabel")
+    FL = rdflib.URIRef(config.fuzzy_label_iri())
     for s, p, o in list(g.triples((None, FL, None))):
         if "Class(" in str(o):
             # "Class(<IRI>)" -> local name of the IRI, anywhere in the label
@@ -497,7 +497,15 @@ def run_fuzzy(individuals, queries, provider="gurobi", base_iri=None, timeout=60
         qlines = ["(sat?)"]
     base = base_iri or _guess_base_iri()
     out = {"stats": stats, "queries": qlines, "workdir": str(work)}
-    out.update(run_script(work, FUZZY_RUNNER, [owl, json.dumps(qlines), base, provider], timeout, log_chars=4000))
+    out.update(
+        run_script(
+            work,  # the converter must read the configured fuzzy label
+            FUZZY_RUNNER.replace("owlAnnotationLabel = fuzzyLabel", "owlAnnotationLabel = " + (config.fuzzy_label() or "__none__")),
+            [owl, json.dumps(qlines), base, provider],
+            timeout,
+            log_chars=4000,
+        )
+    )
     for res in out.get("results", []):  # show the original entity names
         for safe, orig in stats.get("renamed", {}).items():
             res["query"] = res["query"].replace(safe, orig)

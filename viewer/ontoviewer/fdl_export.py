@@ -123,7 +123,9 @@ def _convert(files, timeout):
     try:
         owl = work / "kb.owl"
         stats = reasoner.build_temp_ontology([], owl, files=files)
-        (work / "run.py").write_text(RUNNER)
+        (work / "run.py").write_text(  # the converter must read the configured fuzzy label
+            RUNNER.replace("owlAnnotationLabel = fuzzyLabel", "owlAnnotationLabel = " + (config.fuzzy_label() or "__none__"))
+        )
         try:
             r = subprocess.run(
                 [sys.executable, str(work / "run.py"), str(owl), reasoner._guess_base_iri()],

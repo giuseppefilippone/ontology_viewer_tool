@@ -18,7 +18,7 @@ const SPARQL_EXAMPLES = [
 	],
 	[
 		'Fuzzy classes and their labels',
-		'SELECT ?c ?label WHERE { ?c sdf:isFuzzy true ; a owl:Class ; rdfs:label ?label }'
+		'SELECT ?c ?fl WHERE { ?c sdf:fuzzyLabel ?fl }'
 	],
 	['Subclass hierarchy', 'SELECT ?sub ?super WHERE { ?sub rdfs:subClassOf ?super . ?super a owl:Class } LIMIT 200']
 ];

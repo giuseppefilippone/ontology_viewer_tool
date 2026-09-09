@@ -29,7 +29,7 @@ function renderAxioms() {
 <button class="ibtn" style="margin:0" onclick="exportAxiomsLatex()" title="Download the listed axioms (module / notation / filter as selected) as a LaTeX longtable">${ic('download')} Export LaTeX</button>
 <button class="ibtn" style="margin:0" onclick="exportAxiomsPdf()" title="Compile the LaTeX longtable of the listed axioms with pdflatex (temporary folder) and download the PDF">${ic('download')} Export PDF</button>
       </div>
-      <div class="dt legend" style="margin-top:6px">Legend: ${dot('class', true)} fuzzy axiom (involves <code>isFuzzy</code> entities or degrees) → Fuzzy DL (⟨a:C, n⟩, ⟨(a,b):R, n⟩, ⟨C ⊑ D, n⟩, ls/rs/tri/trz, m(C), w₁·C₁ + …, @op); ${dot('class')} crisp axiom → DL (C(a), r(a,b), ⊑, ≡, fun/trans). The FuzzyDL syntax is the reasoner one (.fdl export). TBox/RBox from the module file (anonymous expressions included), ABox from the index in pages of 500.</div>
+      <div class="dt legend" style="margin-top:6px">Legend: ${dot('class', true)} fuzzy axiom (involves fuzzy entities or degrees) → Fuzzy DL (⟨a:C, n⟩, ⟨(a,b):R, n⟩, ⟨C ⊑ D, n⟩, ls/rs/tri/trz, m(C), w₁·C₁ + …, @op); ${dot('class')} crisp axiom → DL (C(a), r(a,b), ⊑, ≡, fun/trans). The FuzzyDL syntax is the reasoner one (.fdl export). TBox/RBox from the module file (anonymous expressions included), ABox from the index in pages of 500.</div>
       <div id="axbody" style="margin-top:10px"><div class="dt">loading…</div></div></div>`;
 		attachAutocomplete($('#axq'), { single: true, keywords: false });
 	}
@@ -262,7 +262,7 @@ async function exportAxiomsPdf() {
 }
 /**
  * Entry point of the Fuzzy tab (called by the main-tab switch in core.js): lists every entity
- * annotated sdf:isFuzzy, one card per kind (datatypes/modifiers, classes, properties, individuals)
+ * of the fuzzy layer, one card per kind (datatypes/modifiers, classes, properties, individuals)
  * and, inside each card, one section per sub-group (datatype shape, modifiers, fuzzy concepts,
  * bridge classes, composites). Clicking an entity opens it in the Entities tab.
  * Side effects: GET /api/fuzzy (returns {groups:{kind:[{iri,name,label,kind,fuzzyType,shape}]},

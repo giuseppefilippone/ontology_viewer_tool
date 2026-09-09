@@ -144,7 +144,7 @@ def edit_axiom_ann_add(c, p):
         p.get("lit"),
         p.get("dt"),
         p.get("lang"),
-        p.get("prop") or editor.FUZZY_LABEL,
+        p.get("prop") or config.fuzzy_label_iri(),
         p["value"],
     )
     return {"ok": True, "graph": graph}
@@ -385,7 +385,7 @@ def edit_anon_annotate(c, p):
         """Minimal escaping for XML attribute values and text."""
         return str(x).replace("&", "&amp;").replace("<", "&lt;").replace('"', "&quot;")
 
-    prop = p.get("prop") or editor.FUZZY_LABEL
+    prop = p.get("prop") or config.fuzzy_label_iri()
     # the annotation property is written as <ns_ann:local> with its namespace declared inline,
     # so the block is valid whatever prefixes the target file declares
     pfx, local = prop.rsplit("#", 1) if "#" in prop else prop.rsplit("/", 1)

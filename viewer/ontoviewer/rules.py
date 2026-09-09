@@ -16,7 +16,7 @@ import xml.sax.saxutils as sx
 import rdflib
 from rdflib.namespace import RDF, RDFS
 
-from ontoviewer import manchester
+from ontoviewer import config, manchester
 from ontoviewer import workspace
 from ontoviewer import dlquery
 
@@ -24,7 +24,7 @@ SWRL = "http://www.w3.org/2003/11/swrl#"
 SWRLB = "http://www.w3.org/2003/11/swrlb#"
 XSD = "http://www.w3.org/2001/XMLSchema#"
 VAR = "urn:swrl:var#"
-FL = "http://www.semanticweb.org/ontologies/fuzzydl_ontology#fuzzyLabel"
+FL = config.fuzzy_label_iri  # configured fuzzy annotation IRI (call at use time)
 S = rdflib.Namespace(SWRL)
 _CACHE = {}
 
@@ -169,7 +169,7 @@ def rule_xml(iri, rule, label=None, comment=None, degree=None):
     if degree is not None:
         fl = f'<fuzzyOwl2 fuzzyType="axiom"><Degree value="{degree}"/></fuzzyOwl2>'
         parts.append(
-            f'        <sdf:fuzzyLabel xmlns:sdf="http://www.semanticweb.org/ontologies/fuzzydl_ontology#">{sx.escape(fl)}</sdf:fuzzyLabel>'
+            f'        <sdf:{config.fuzzy_label() or "fuzzyLabel"} xmlns:sdf="http://www.semanticweb.org/ontologies/fuzzydl_ontology#">{sx.escape(fl)}</sdf:{config.fuzzy_label() or "fuzzyLabel"}>'
         )
     for part in ("body", "head"):
         parts.append(f'        <swrl:{part} rdf:parseType="Collection">')
@@ -242,7 +242,7 @@ def list_rules():
                     return [_atom_text(g, a) for a in rdflib.collection.Collection(g, lst)] if lst is not None else []
 
                 deg = None
-                for lbl in g.objects(imp, rdflib.URIRef(FL)):
+                for lbl in g.objects(imp, rdflib.URIRef(FL())):
                     m = re.search(r'Degree value="([^"]+)"', str(lbl))
                     if m:
                         deg = m.group(1)

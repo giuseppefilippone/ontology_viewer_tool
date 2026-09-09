@@ -11,7 +11,7 @@
 //     2. Axioms tab (#tab-axioms): TBox/RBox + paginated ABox of one module or of the closure, shown
 //        in DL / fuzzy DL / FuzzyDL notation (GET /api/axioms), with LaTeX and PDF export (POST /api/pdf).
 //     3. LaTeX helpers shared by the two exports: texEsc, dlToTex, downloadText, axiomsTex, LONGTABLE_ROWS.
-//     4. Fuzzy tab (#tab-fuzzy): entities annotated sdf:isFuzzy grouped by kind and shape (GET /api/fuzzy).
+//     4. Fuzzy tab (#tab-fuzzy): fuzzy entities (annotation or equivalence) grouped by kind and shape (GET /api/fuzzy).
 //     5. Ontology info tab (#tab-ontology): ontology header, imports, prefixes, general class axioms,
 //        OWL API-style metrics of the active module and of its import closure, breakdown by module with
 //        pie charts, CSV / LaTeX / PDF export of the metrics (GET /api/ontology, POST /api/workspace/remove,

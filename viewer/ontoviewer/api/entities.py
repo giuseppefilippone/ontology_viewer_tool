@@ -161,7 +161,7 @@ def api_entity(q):
         iri  IRI of the entity (default '')
 
     Returns {"node": node_json, "out": [group…], "incoming": [group…], "incoming_total": int,
-    "modules": [file…], "bounds": {"kmin", "kmax"} | None} where
+    "modules": [file…], "bounds": {"kmin", "kmax"} | None, "fuzzy_via": [{"iri", "name"}…]} where
         out       statements with the entity as subject, one group per predicate:
                   {"pred": short name, "piri": IRI, "pkind": kind of the predicate (annprop,
                   objprop, dataprop or None), "values": [value…], "more": n}; a value is
@@ -173,6 +173,9 @@ def api_entity(q):
         incoming  statements with the entity as object (first 200), same grouping without ``more``
         modules   files holding at least one statement about the entity
         bounds    numeric range of a fuzzy datatype (table datatype_bounds), if any
+        fuzzy_via annotated fuzzy entities this one is equivalent to (fuzziness inherited
+                  through owl:equivalentClass / owl:equivalentProperty); empty when the
+                  entity is crisp or carries its own fuzzy annotation
     A built-in datatype absent from the index yields a synthetic node with empty lists; an unknown
     IRI yields {"error": "not found"}.  ``iri`` may be the pseudo-IRI ``_:<id>`` of an anonymous
     individual (same payload, node kind 'anon').
@@ -293,6 +296,15 @@ def api_entity(q):
         )
     # modules with statements about the entity: declaration and assertions may live in different files
     mods = [g for (g,) in db().execute("SELECT DISTINCT graph FROM stmt WHERE s=?", (i,)).fetchall()]
+    # fuzzy inherited through equivalence: the annotated entities this one is equivalent to
+    via = [
+        {"iri": r["iri"], "name": store.display_name(r["iri"], r["id"])}
+        for r in db()
+        .execute(
+            f"SELECT id, iri FROM nodes WHERE id IN ({','.join(map(str, store.fuzzy_via().get(i, ()))) or 'NULL'}) ORDER BY lname"
+        )
+        .fetchall()
+    ]
     return {
         "node": node,
         "out": list(out.values()),
@@ -300,6 +312,7 @@ def api_entity(q):
         "incoming_total": n_in,
         "modules": mods,
         "bounds": bounds,
+        "fuzzy_via": via,
     }
 
 
@@ -710,7 +723,7 @@ def api_entity_axioms(q):
 
 
 def api_fuzzy(q):
-    """All entities marked isFuzzy, grouped by kind, with their fuzzyLabel kind if any.
+    """All fuzzy entities (configured fuzzy annotation + equivalence closure), grouped by kind.
 
     No query parameters are used.
 
@@ -719,12 +732,21 @@ def api_fuzzy(q):
         fuzzyType   the fuzzyType attribute of that XML (datatype, concept, modifier, …);
                     a class without label is reported as "class", other kinds as None
         shape       the membership-function type (leftshoulder, triangular, …), if any
+        via         names of the annotated entities fuzziness is inherited from through
+                    owl:equivalentClass / owl:equivalentProperty (derived entities only)
     """
     ids = fuzzy_ids()
     if not ids:
         return {"groups": {}, "total": 0}
-    # the fuzzyLabel annotation property: None when the vocabulary is not used in this workspace
-    fl = get_id("http://www.semanticweb.org/ontologies/fuzzydl_ontology#fuzzyLabel")
+    # the fuzzy annotation properties: every property whose local name is the configured label
+    fls = [r[0] for r in db().execute("SELECT id FROM nodes WHERE lname=?", (config.fuzzy_label().lower(),)).fetchall()]
+    via = store.fuzzy_via()
+    src_names = {
+        r["id"]: store.display_name(r["iri"], r["id"])
+        for r in db()
+        .execute(f"SELECT id, iri FROM nodes WHERE id IN ({','.join(map(str, set().union(*via.values()))) or 'NULL'})")
+        .fetchall()
+    } if via else {}
     groups = {}
     for r in (
         db().execute(f"SELECT * FROM nodes WHERE id IN ({','.join(map(str, ids))}) ORDER BY kind, lname").fetchall()
@@ -732,8 +754,16 @@ def api_fuzzy(q):
         n = node_json(r)
         # one label per entity is enough for the summary (LIMIT 1); the fields below are parsed
         # from the Fuzzy OWL 2 XML with regexes, no XML parser needed
-        lit = db().execute("SELECT o_lit FROM stmt WHERE s=? AND p=? LIMIT 1", (r["id"], fl)).fetchone() if fl else None
+        lit = (
+            db()
+            .execute(f"SELECT o_lit FROM stmt WHERE s=? AND p IN ({','.join(map(str, fls))}) LIMIT 1", (r["id"],))
+            .fetchone()
+            if fls
+            else None
+        )
         n["fuzzyLabel"] = lit["o_lit"] if lit else None
+        if r["id"] in via:
+            n["via"] = sorted(src_names.get(v, "?") for v in via[r["id"]])
         m = re.search(r'fuzzyType="(\w+)"', n["fuzzyLabel"] or "")
         n["fuzzyType"] = m.group(1) if m else ("class" if r["kind"] == "class" else None)
         m2 = re.search(r'<(?:Datatype|Concept|Modifier) type="(\w+)"', n["fuzzyLabel"] or "")

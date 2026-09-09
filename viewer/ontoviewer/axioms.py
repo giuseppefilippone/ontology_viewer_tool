@@ -4,7 +4,7 @@ TBox/RBox: parsed with rdflib from the module file (cached per mtime) when the f
 is small enough to hold anonymous class expressions; otherwise from the index
 (named axioms only). ABox: from the index, paginated.
 
-An axiom is "fuzzy" when it involves an entity annotated sdf:isFuzzy or carries a
+An axiom is "fuzzy" when it involves a fuzzy entity (fuzzy annotation, equivalence closure) or carries a
 fuzzy degree (owl:Axiom with fuzzyLabel) → rendered in FuzzyDL syntax
 (the one produced by fuzzy_dl_owl2); otherwise in DL notation.
 """
@@ -17,11 +17,12 @@ import xml.etree.ElementTree as ET
 import rdflib
 from rdflib.namespace import OWL, RDF, RDFS, XSD
 
-from ontoviewer import reasoner, workspace
+from ontoviewer import config, reasoner, workspace
 
 BASE = "http://www.semanticweb.org/ontologies/fuzzydl_ontology"
-FL = rdflib.URIRef(BASE + "#fuzzyLabel")
-IS_FUZZY = rdflib.URIRef(BASE + "#isFuzzy")
+def FL():
+    """Configured fuzzy annotation IRI (read at use time: the setting can change)."""
+    return rdflib.URIRef(config.fuzzy_label_iri())
 MAX_TBOX_FILE_MB = 80
 _CACHE = {}
 FACET = {"minInclusive": "≥", "maxInclusive": "≤", "minExclusive": ">", "maxExclusive": "<"}
@@ -155,6 +156,34 @@ def fuzzy_label_math(name, xml):
     return None
 
 
+def _graph_fuzzy(g):
+    """Named fuzzy entities of a parsed module graph: subjects of the configured fuzzy
+    annotation (any predicate with that local name, default fuzzyLabel), extended over
+    owl:equivalentClass / owl:equivalentProperty chains (both directions)."""
+    name = config.fuzzy_label()
+    if not name:
+        return set()
+    fuzzy = {
+        s
+        for s, p, _ in g.triples((None, None, None))
+        if isinstance(s, rdflib.URIRef) and isinstance(p, rdflib.URIRef) and str(p).rsplit("#", 1)[-1].rsplit("/", 1)[-1] == name
+    }
+    if fuzzy:
+        edges = {}
+        for eq in (OWL.equivalentClass, OWL.equivalentProperty):
+            for s, o in g.subject_objects(eq):
+                if isinstance(s, rdflib.URIRef) and isinstance(o, rdflib.URIRef):
+                    edges.setdefault(s, set()).add(o)
+                    edges.setdefault(o, set()).add(s)
+        todo = [n for n in fuzzy if n in edges]
+        while todo:
+            for n in edges.get(todo.pop(), ()):
+                if n not in fuzzy:
+                    fuzzy.add(n)
+                    todo.append(n)
+    return fuzzy
+
+
 def degree_of(xml):
     m = re.search(r'Degree value="([^"]+)"', xml or "")
     return m.group(1) if m else None
@@ -166,7 +195,7 @@ def degree_of(xml):
 def tbox(fname):
     """Schema axioms of one module: list of {kind, fuzzy, dl, fdl, s}."""
     path = workspace.ont_dir() / fname
-    key = f"{path}@{path.stat().st_mtime}#v5"  # bump when the item format changes
+    key = f"{path}@{path.stat().st_mtime}#v6:{config.fuzzy_label()}"  # bump #v6 when the item format changes
     if key in _CACHE:
         return _CACHE[key]
     cpath, disk = _disk_cache()
@@ -177,8 +206,7 @@ def tbox(fname):
         return _store(key, path, _tbox_from_index(fname))
     g = rdflib.Graph()
     g.parse(path, format="xml")
-    fuzzy = {s for s in g.subjects(IS_FUZZY, None)}
-    fuzzy |= {s for s in g.subjects(FL, None) if isinstance(s, rdflib.URIRef)}
+    fuzzy = _graph_fuzzy(g)
     R = Renderer(g, fuzzy)
     out = []
 
@@ -280,7 +308,7 @@ def tbox(fname):
     dt_bounds = {d: datatype_def(d) for d in g.subjects(RDF.type, RDFS.Datatype) if named(d)}
     # ontology-level fuzzy logic
     for o in g.subjects(RDF.type, OWL.Ontology):
-        for lbl in g.objects(o, FL):
+        for lbl in g.objects(o, FL()):
             f = fuzzy_label_fdl(short(o), str(lbl))
             if f:
                 out.append(
@@ -294,7 +322,7 @@ def tbox(fname):
                     }
                 )
     # fuzzy definitions (datatypes, modifiers, concepts) from fuzzyLabel
-    for s, lbl in g.subject_objects(FL):
+    for s, lbl in g.subject_objects(FL()):
         if not named(s) or (s, RDF.type, OWL.Ontology) in g:
             continue
         f = fuzzy_label_fdl(fdl_name(s), str(lbl), (dt_bounds.get(s) or (None, None, None))[2])

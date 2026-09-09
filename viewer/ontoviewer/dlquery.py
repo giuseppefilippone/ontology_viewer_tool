@@ -223,9 +223,9 @@ def query(expr, wants, use_reasoner=True, limit=500):
     out = {"expression": manchester.to_manchester(ast), "seconds": 0}
     fz = set()
     try:
-        import app  # fuzzy ids for the result rendering
+        from ontoviewer import store  # fuzzy ids for the result rendering
 
-        fz = app.fuzzy_ids()
+        fz = store.fuzzy_ids()
     except Exception:
         pass
 

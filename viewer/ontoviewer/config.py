@@ -3,12 +3,14 @@
 All runtime data (indexes, workspace files, exports, reasoner scratch dirs, uploads) lives
 under ``data/`` next to the package; the browser front-end under ``static/``.
 
-This module has no functions: it only defines directory paths (``pathlib.Path``), the RDF
-vocabularies used to recognise entities and fuzzy annotations, the list of OWL 2 built-in
-datatypes and the page sizes of the paginated API endpoints.  ``data/`` itself is expected
+This module defines directory paths (``pathlib.Path``), the RDF vocabularies used to
+recognise entities and fuzzy annotations (plus ``fuzzy_label()``, the configurable local
+name of the fuzzy annotation property), the list of OWL 2 built-in datatypes and the page
+sizes of the paginated API endpoints.  ``data/`` itself is expected
 to exist; the modules that need a sub-directory create it themselves (``mkdir``).
 """
 
+import json
 import pathlib
 
 from rdflib.namespace import OWL, RDF, RDFS, XSD, Namespace
@@ -32,12 +34,29 @@ for _d in (DATA_DIR, EXPORTS_DIR, WORK_DIR, UPLOADS_DIR):
 # ---- vocabularies (rdflib namespaces; str(...) gives the IRI) -----------------------------
 RDF_TYPE = str(RDF.type)
 OWL_NS, RDFS_NS, RDF_NS, XSD_NS = str(OWL), str(RDFS), str(RDF), str(XSD)
-# The SDF ontologies mark fuzzy entities with an annotation property of their own namespace
-# (``sdf:isFuzzy "true"``); Fuzzy OWL 2 encodes membership functions / degrees as XML text in
-# ``fuzzyLabel`` annotations (Bobillo & Straccia).
-SDF = Namespace("http://www.semanticweb.org/ontologies/fuzzydl_ontology#")  # SDF fuzzy vocabulary
-IS_FUZZY = str(SDF.isFuzzy)  # entity flag annotation
-FUZZY_LABEL = str(SDF.fuzzyLabel)  # Fuzzy OWL 2 label annotation
+# Fuzzy OWL 2 encodes membership functions / degrees as XML text in ``fuzzyLabel`` annotations
+# (Bobillo & Straccia); the local name of that property is configurable (``fuzzy_label()``).
+SDF = Namespace("http://www.semanticweb.org/ontologies/fuzzydl_ontology#")  # Fuzzy OWL 2 vocabulary
+FUZZY_LABEL = str(SDF.fuzzyLabel)  # default fuzzy label annotation (full IRI)
+
+
+def fuzzy_label():
+    """Local name of the annotation property that marks fuzzy entities (the Fuzzy OWL 2
+    ``owlAnnotationLabel``): ``fuzzy_label`` of data/ui_config.json, default ``fuzzyLabel``.
+    An empty value means the workspace is treated as a classical crisp ontology."""
+    try:
+        return json.load(open(UI_CONFIG)).get("fuzzy_label", "fuzzyLabel") if UI_CONFIG.exists() else "fuzzyLabel"
+    except Exception:
+        return "fuzzyLabel"
+
+
+def fuzzy_label_iri():
+    """Full IRI used when WRITING fuzzy annotations (labels and degrees): the configured
+    local name in the Fuzzy OWL 2 namespace, ``sdf:fuzzyLabel`` by default or when the
+    configured label is empty."""
+    return str(SDF) + (fuzzy_label() or "fuzzyLabel")
+
+
 SWRL = Namespace("http://www.w3.org/2003/11/swrl#")
 SWRLB = Namespace("http://www.w3.org/2003/11/swrlb#")
 

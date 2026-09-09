@@ -148,6 +148,8 @@ function drawOntology() {
       <input id="overs" value="${esc(o.version || '')}" placeholder="e.g. ${esc(o.iri)}/1.0.0" spellcheck="false" onkeydown="if(event.key==='Enter')this.blur()" onchange="ontSetVersion(decodeURIComponent('${oenc}'),'${esc(o.file || '')}',decodeURIComponent('${venc}'),this.value.trim())">
       <label>Location</label>
       <span>${esc(o.file || '—')}</span>
+      <label for="ofzl" title="Local name of the annotation property that marks fuzzy entities (the Fuzzy OWL 2 owlAnnotationLabel). Empty = classical crisp ontology. Fuzziness also propagates through owl:equivalentClass / owl:equivalentProperty to the equivalent entities.">Fuzzy annotation</label>
+      <input id="ofzl" value="${esc(uiConfig.fuzzy_label === undefined ? 'fuzzyLabel' : uiConfig.fuzzy_label)}" placeholder="empty = crisp ontology" spellcheck="false" onkeydown="if(event.key==='Enter')this.blur()" onchange="ontSetFuzzyLabel(this.value.trim())">
     </div>
     <div class="sect"><h3>Annotations <button class="ibtn" onclick="ontAddAnnotation(decodeURIComponent('${oenc}'),'${esc(o.file || '')}')" title="Add an annotation to the ontology header (e.g. rdfs:comment, dc:title, owl:versionInfo)">+ annotation</button></h3>${
 			o.annotations.length
@@ -192,6 +194,11 @@ function drawOntology() {
 	};
 	// exposed globally because the tab buttons swap panels from an inline onclick
 	window._bp = bottomPanels;
+	/** Save the fuzzy annotation label (viewer setting, data/ui_config.json) and reload: fuzziness is recomputed everywhere. */
+	window.ontSetFuzzyLabel = (name) => {
+		if (name === (uiConfig.fuzzy_label === undefined ? 'fuzzyLabel' : uiConfig.fuzzy_label)) return;
+		post('/api/ui_config', { fuzzy_label: name }).then(() => location.reload());
+	};
 	// bottom-tab card (#btabs buttons + #bpanel content), imports shown first
 	const imports = `<div class="card">
     <div id="btabs">

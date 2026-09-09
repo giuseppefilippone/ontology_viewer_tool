@@ -194,7 +194,7 @@ function modifiedPreview(modIri, baseIri, target) {
 	Promise.all([api('/api/entity', { iri: modIri }), api('/api/entity', { iri: baseIri })]).then(([m, b]) => {
 		// parsed fuzzyLabel of an entity payload (null when absent)
 		const fl = (d) => {
-			const g = (d.out || []).find((x) => x.pred === 'fuzzyLabel');
+			const g = (d.out || []).find((x) => x.pred === (fuzzyLbl() || 'fuzzyLabel'));
 			return g ? parseFuzzy(g.values[0].lit) : null;
 		};
 		const fm = fl(m),
@@ -2627,7 +2627,11 @@ const SHAPES = {
  */
 const escXml = (s) =>
 	String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const SDFNS = 'http://www.semanticweb.org/ontologies/fuzzydl_ontology#'; // namespace of sdf:fuzzyLabel / sdf:isFuzzy
+const SDFNS = 'http://www.semanticweb.org/ontologies/fuzzydl_ontology#'; // namespace of the fuzzy annotations
+/** Local name of the fuzzy annotation property (Ontology Info setting; '' = crisp classical ontology). */
+const fuzzyLbl = () => (uiConfig.fuzzy_label === undefined ? 'fuzzyLabel' : uiConfig.fuzzy_label);
+/** Full IRI used when WRITING fuzzy annotations: the configured name in the sdf namespace. */
+const fuzzyPropIri = () => SDFNS + (fuzzyLbl() || 'fuzzyLabel');
 /**
  * Attributes of the inner element (Datatype / Modifier / Concept) of a fuzzyLabel XML, as a plain object
  * (e.g. {type:'trapezoidal', a:'20', b:'40', …}); used to prefill the edit forms.
@@ -2650,8 +2654,8 @@ function fuzzyLabelAttrs(xml) {
  * Fields: name/namespace (new only), target module, base xsd type (new only), domain k1/k2, shape,
  * parameters a…d, modifier + base datatype (shape "modified") and a live SVG preview (#fzprev / #fzval).
  * On OK (after validateFuzzy):
- *   - existing: POST /api/edit/remove of the old fuzzyLabel, then /api/edit/add of the new one and of sdf:isFuzzy=true;
- *   - new: POST /api/edit/raw with an RDF/XML rdfs:Datatype block (fuzzyLabel, isFuzzy, label, owl:equivalentClass
+ *   - existing: POST /api/edit/remove of the old fuzzy label, then /api/edit/add of the new one;
+ *   - new: POST /api/edit/raw with an RDF/XML rdfs:Datatype block (fuzzy label, label, owl:equivalentClass
  *     restricting the base datatype to [k1,k2]) plus the equivalent triples for the index; selIri = new IRI.
  * @param {{iri:string, lit:?string, graph:string, bounds:?{kmin:number,kmax:number}}} [existing] Datatype being edited (undefined = create).
  * @returns {void}
@@ -2755,40 +2759,26 @@ function fuzzyDatatypeForm(existing) {
 				// replace the fuzzyLabel literal only (the [k1,k2] definition is an anonymous axiom: edit it from Datatype Definitions)
 				const s = existing.iri;
 				const chain = existing.lit
-					? post('/api/edit/remove', { s, p: SDFNS + 'fuzzyLabel', lit: existing.lit, graph: existing.graph })
+					? post('/api/edit/remove', { s, p: fuzzyPropIri(), lit: existing.lit, graph: existing.graph })
 					: Promise.resolve({});
-				return chain
-					.then((r) => (r.error ? r : post('/api/edit/add', { s, p: SDFNS + 'fuzzyLabel', lit: fl, graph: v.graph })))
-					.then((r) =>
-						r.error
-							? r
-							: post('/api/edit/add', {
-									s,
-									p: SDFNS + 'isFuzzy',
-									lit: 'true',
-									dt: XSDNS + 'boolean',
-									graph: v.graph
-								})
-					);
+				return chain.then((r) =>
+					r.error ? r : post('/api/edit/add', { s, p: fuzzyPropIri(), lit: fl, graph: v.graph })
+				);
 			}
 			const iri = v.ns + v.name.replace(/\s+/g, '_');
 			// one rdfs:Datatype restriction (xsd:minInclusive / xsd:maxInclusive facet) on the base datatype
 			const restr = (facet, val) =>
 				`            <rdfs:Datatype>\n                <owl:onDatatype rdf:resource="${v.base}"/>\n                <owl:withRestrictions rdf:parseType="Collection">\n                    <rdf:Description>\n                        <xsd:${facet} rdf:datatype="${XSDNS}decimal">${val}</xsd:${facet}>\n                    </rdf:Description>\n                </owl:withRestrictions>\n            </rdfs:Datatype>`;
-			const xml = `    <rdfs:Datatype rdf:about="${iri}" xmlns:xsd="${XSDNS}" xmlns:sdf="${SDFNS}">\n        <sdf:fuzzyLabel>${escXml(fl)}</sdf:fuzzyLabel>\n        <rdfs:label xml:lang="en">${escXml(v.name)}</rdfs:label>\n        <owl:equivalentClass>\n            <rdfs:Datatype>\n                <owl:intersectionOf rdf:parseType="Collection">\n${restr('minInclusive', v.k1)}\n${restr('maxInclusive', v.k2)}\n                </owl:intersectionOf>\n            </rdfs:Datatype>\n        </owl:equivalentClass>\n    </rdfs:Datatype>`;
-			// the same facts as plain triples so the index reflects them before Save; the isFuzzy element is spliced before rdfs:label
+			const xml = `    <rdfs:Datatype rdf:about="${iri}" xmlns:xsd="${XSDNS}" xmlns:sdf="${SDFNS}">\n        <sdf:${fuzzyLbl() || 'fuzzyLabel'}>${escXml(fl)}</sdf:${fuzzyLbl() || 'fuzzyLabel'}>\n        <rdfs:label xml:lang="en">${escXml(v.name)}</rdfs:label>\n        <owl:equivalentClass>\n            <rdfs:Datatype>\n                <owl:intersectionOf rdf:parseType="Collection">\n${restr('minInclusive', v.k1)}\n${restr('maxInclusive', v.k2)}\n                </owl:intersectionOf>\n            </rdfs:Datatype>\n        </owl:equivalentClass>\n    </rdfs:Datatype>`;
+			// the same facts as plain triples so the index reflects them before Save
 			const triples = [
 				{ s: iri, p: RDF + 'type', o: RDFS + 'Datatype' },
 				{ s: iri, p: RDFS + 'label', lit: v.name, lang: 'en' },
-				{ s: iri, p: SDFNS + 'fuzzyLabel', lit: fl },
-				{ s: iri, p: SDFNS + 'isFuzzy', lit: 'true', dt: XSDNS + 'boolean' }
+				{ s: iri, p: fuzzyPropIri(), lit: fl }
 			];
 			return post('/api/edit/raw', {
 				graph: v.graph,
-				xml: xml.replace(
-					'<rdfs:label',
-					'<sdf:isFuzzy rdf:datatype="' + XSDNS + 'boolean">true</sdf:isFuzzy>\n        <rdfs:label'
-				),
+				xml,
 				triples,
 				subject: iri
 			}).then((r) => {
@@ -2955,7 +2945,7 @@ function fuzzySVGdomain(shape, p) {
  * Form to create a fuzzy modifier (an rdfs:Datatype with fuzzyType="modifier") or edit an existing one.
  * Fields: name/namespace (new only), module, type (linear c | triangular a,b,c), live preview (#fmprev / #fmval).
  * On OK (after validateModifier): existing → remove old fuzzyLabel + add the new one; new → POST /api/edit/raw
- * with the rdfs:Datatype block (fuzzyLabel, isFuzzy, label) and its triples; selIri = new IRI.
+ * with the rdfs:Datatype block (fuzzy label, label) and its triples; selIri = new IRI.
  * @param {{iri:string, lit:?string, graph:string}} [existing] Modifier being edited (undefined = create).
  * @returns {void}
  */
@@ -3011,25 +3001,21 @@ function fuzzyModifierForm(existing) {
 			if (existing) {
 				const s = existing.iri;
 				const chain = existing.lit
-					? post('/api/edit/remove', { s, p: SDFNS + 'fuzzyLabel', lit: existing.lit, graph: existing.graph })
+					? post('/api/edit/remove', { s, p: fuzzyPropIri(), lit: existing.lit, graph: existing.graph })
 					: Promise.resolve({});
 				return chain.then((r) =>
-					r.error ? r : post('/api/edit/add', { s, p: SDFNS + 'fuzzyLabel', lit: fl, graph: v.graph })
+					r.error ? r : post('/api/edit/add', { s, p: fuzzyPropIri(), lit: fl, graph: v.graph })
 				);
 			}
 			const iri = v.ns + v.name.replace(/\s+/g, '_');
-			const xml = `    <rdfs:Datatype rdf:about="${iri}" xmlns:sdf="${SDFNS}">\n        <sdf:fuzzyLabel>${escXml(fl)}</sdf:fuzzyLabel>\n        <rdfs:label xml:lang="en">${escXml(v.name)}</rdfs:label>\n    </rdfs:Datatype>`;
+			const xml = `    <rdfs:Datatype rdf:about="${iri}" xmlns:sdf="${SDFNS}">\n        <sdf:${fuzzyLbl() || 'fuzzyLabel'}>${escXml(fl)}</sdf:${fuzzyLbl() || 'fuzzyLabel'}>\n        <rdfs:label xml:lang="en">${escXml(v.name)}</rdfs:label>\n    </rdfs:Datatype>`;
 			return post('/api/edit/raw', {
 				graph: v.graph,
-				xml: xml.replace(
-					'<rdfs:label',
-					'<sdf:isFuzzy rdf:datatype="' + XSDNS + 'boolean">true</sdf:isFuzzy>\n        <rdfs:label'
-				),
+				xml,
 				triples: [
 					{ s: iri, p: RDF + 'type', o: RDFS + 'Datatype' },
 					{ s: iri, p: RDFS + 'label', lit: v.name, lang: 'en' },
-					{ s: iri, p: SDFNS + 'fuzzyLabel', lit: fl },
-					{ s: iri, p: SDFNS + 'isFuzzy', lit: 'true', dt: XSDNS + 'boolean' }
+					{ s: iri, p: fuzzyPropIri(), lit: fl }
 				],
 				subject: iri
 			}).then((r) => {
@@ -3127,7 +3113,7 @@ function modifierSVG(v) {
  * owa/choquet/sugeno/quasisugeno (Weights + Names), qowa (quantifier + Names), modified (modifier + base concept).
  * Components are dynamic rows in #fzrows (weight input .fw + class picker .fc) added by window.fzAddRow().
  * On OK: validation per type (Σw ≤ 1, one weight = 1, …), then POST /api/edit/remove of the old fuzzyLabel
- * (if any), /api/edit/add of the new one and of sdf:isFuzzy=true (no explicit graph: the server picks the declaring module).
+ * (if any), /api/edit/add of the new one (no explicit graph: the server picks the declaring module).
  * @param {string} classIri Class IRI.
  * @param {?{lit:string, graph:string, parsed:?Object}} existing Current fuzzyLabel (parsed by parseFuzzy) used to prefill the rows, or null.
  * @returns {void}
@@ -3188,26 +3174,15 @@ function fuzzyConceptForm(classIri, existing) {
 			const chain = existing
 				? post('/api/edit/remove', {
 						s: classIri,
-						p: SDFNS + 'fuzzyLabel',
+						p: fuzzyPropIri(),
 						lit: existing.lit,
 						graph: existing.graph
 					})
 				: Promise.resolve({});
-			return chain
-				.then((r0) =>
-					// a failed removal of the previous label must not be followed by the add
-					r0 && r0.error ? r0 : post('/api/edit/add', { s: classIri, p: SDFNS + 'fuzzyLabel', lit: fl })
-				)
-				.then((r) =>
-					r.error
-						? r
-						: post('/api/edit/add', {
-								s: classIri,
-								p: SDFNS + 'isFuzzy',
-								lit: 'true',
-								dt: XSDNS + 'boolean'
-							}).then(() => r)
-				);
+			return chain.then((r0) =>
+				// a failed removal of the previous label must not be followed by the add
+				r0 && r0.error ? r0 : post('/api/edit/add', { s: classIri, p: fuzzyPropIri(), lit: fl })
+			);
 		},
 		'fuzzy-dl-owl2: one fuzzyLabel per class (the existing one is replaced). Concept/modifier names are the local names (after #). "nominal" is not supported by the FuzzyDL writer.'
 	);
@@ -3479,12 +3454,12 @@ const valLink = (v) => (v.kind === 'anon' ? anonCard(v) : entLink(v));
  * @returns {boolean}
  */
 const isAnnGroup = (g) =>
-	ANN_PREDS.has(g.piri) || g.pkind === 'annprop' || g.pred === 'fuzzyLabel' || g.pred === 'isFuzzy';
+	ANN_PREDS.has(g.piri) || g.pkind === 'annprop' || (!!fuzzyLbl() && g.pred === fuzzyLbl());
 /**
  * Rows of the annotation and (for individuals, named or anonymous) the type / assertion sections of an entity
  * payload: annotations = annotation-property groups (literal or entity-valued, anonymous individuals as cards) plus,
  * for classes / properties / datatypes, every other literal — the fuzzy markers (fuzzyLabel rendered by fuzzyRender,
- * isFuzzy) are returned apart; types = rdf:type without owl:NamedIndividual; object property assertions = IRI-valued
+ * the fuzzy annotation) are returned apart; types = rdf:type without owl:NamedIndividual; object property assertions = IRI-valued
  * groups outside the rdfs: / owl: vocabularies that are not annotations; data property assertions = the other literals.
  * @param {Object} d GET /api/entity payload. @param {string} S JS expression of the subject IRI. @param {string} kind Kind of the subject.
  * @returns {{ann:string, fuzzy:string, types?:string, obj?:string, data?:string}} HTML rows per section.
@@ -3495,11 +3470,11 @@ function individualRows(d, S, kind) {
 	const pred = (g) => `<b style="font-size:12px">${esc(g.pred)}</b> `;
 	const groups = (test) => d.out.filter((g) => g.values[0] && test(g));
 	const rowsOf = (gs, render) => gs.map((g) => g.values.map((v) => row(g, v, render(g, v))).join('')).join('');
-	const isFuzzyGroup = (g) => g.pred === 'fuzzyLabel' || g.pred === 'isFuzzy';
+	const isFuzzyGroup = (g) => !!fuzzyLbl() && g.pred === fuzzyLbl();
 	const annRender = (g, v) =>
 		pred(g) +
 		('lit' in v
-			? `${v.lang ? `<span class="dt">[language: ${esc(v.lang)}]</span>` : ''}<div>${g.pred === 'fuzzyLabel' ? fuzzyRender(v.lit) : litRender({ ...v, lang: null })}</div>`
+			? `${v.lang ? `<span class="dt">[language: ${esc(v.lang)}]</span>` : ''}<div>${isFuzzyGroup(g) ? fuzzyRender(v.lit) : litRender({ ...v, lang: null })}</div>`
 			: `<div>${valLink(v)}</div>`);
 	const ann = rowsOf(
 		groups((g) => !isFuzzyGroup(g) && (isAnnGroup(g) || ('lit' in g.values[0] && !isInd))),
@@ -3784,7 +3759,7 @@ function entityContext(d, ax) {
 	d.out.forEach((g) => (byP[g.piri] = g));
 	window._curBounds = d.bounds || null;
 	const E = { d, ax, n, kind, S, isInd, byP, rows: individualRows(d, S, kind) };
-	const fz = d.out.find((g) => g.pred === 'fuzzyLabel');
+	const fz = d.out.find((g) => fuzzyLbl() && g.pred === fuzzyLbl());
 	E.fzv = fz && fz.values[0];
 	E.fuzzy = !!(n.fuzzy || E.fzv); // the entity has a fuzzy definition → Fuzzy tab
 	E.namedRows = (piri, render) => {
@@ -4026,11 +4001,18 @@ const annotationsPanel = (E) =>
 	panelHtml(E, 'Annotations', E.sect('Annotations', 'ann', E.rows.ann, E.fuzzy ? '' : fuzzyButton(E)));
 /**
  * Fuzzy tab (fuzzy entities only): the fuzzy markers — fuzzyLabel rendered by fuzzyRender (membership plot, modifier
- * curve, weighted / OWA aggregation), isFuzzy — with the edit button of the definition.
+ * curve, weighted / OWA aggregation) — with the edit button of the definition.
  * @param {Object} E entityContext.
  * @returns {string} HTML.
  */
-const fuzzyPanel = (E) => panelHtml(E, 'Fuzzy', E.sect('Fuzzy definition', null, E.rows.fuzzy, fuzzyButton(E)));
+/** Rows of the Fuzzy panel when fuzziness is inherited through owl:equivalentClass / owl:equivalentProperty. */
+const fuzzyViaRows = (E) =>
+	(E.d.fuzzy_via || []).length
+		? prow(
+				`<b style="font-size:12px">fuzzy through equivalence with</b> <div>${E.d.fuzzy_via.map((v) => entLink(v)).join(', ')}</div>`
+			)
+		: '';
+const fuzzyPanel = (E) => panelHtml(E, 'Fuzzy', E.sect('Fuzzy definition', null, E.rows.fuzzy + fuzzyViaRows(E), fuzzyButton(E)));
 /** Instances tab (classes): the paginated list filled by loadInstances into #instances. @param {Object} E @returns {string} */
 const instancesPanel = (E) =>
 	panelHtml(E, 'Instances', E.sect('Instances', 'type_inst', '<div id="instances" class="dt">…</div>'));
@@ -4284,7 +4266,7 @@ function annotateAxiom(s, p, o, lit, dt, lang, graph) {
 				label: 'Annotation property',
 				type: 'select',
 				options: [
-					[SDFNS + 'fuzzyLabel', 'fuzzyLabel (fuzzy degree)'],
+					[fuzzyPropIri(), (fuzzyLbl() || 'fuzzyLabel') + ' (fuzzy degree)'],
 					[RDFS + 'comment', 'rdfs:comment'],
 					[RDFS + 'label', 'rdfs:label'],
 					['custom', 'other (search below)']
@@ -4297,7 +4279,7 @@ function annotateAxiom(s, p, o, lit, dt, lang, graph) {
 		(v) => {
 			const prop = v.prop === 'custom' ? toIri(v.pc, 'annprop') : v.prop;
 			let value = v.text;
-			if (prop === SDFNS + 'fuzzyLabel') {
+			if (prop === fuzzyPropIri()) {
 				const dg = parseFloat(v.degree);
 				if (!(dg >= 0 && dg <= 1)) return { error: 'degree must be in [0,1]' };
 				value = `<fuzzyOwl2 fuzzyType="axiom">\n\t<Degree value="${dg}"/>\n</fuzzyOwl2>\n`;
@@ -4327,7 +4309,7 @@ function annotateAxiom(s, p, o, lit, dt, lang, graph) {
 		wrap.previousElementSibling.style.display = on ? '' : 'none';
 	};
 	const upd = () => {
-		const fz = sel.value === SDFNS + 'fuzzyLabel';
+		const fz = sel.value === fuzzyPropIri();
 		vis('degree', fz);
 		vis('text', !fz);
 		vis('pc', sel.value === 'custom');
@@ -4354,7 +4336,7 @@ function axAnnPrefill(i) {
 	const iri = a.prop.startsWith('http')
 		? a.prop
 		: a.prop === 'fuzzyLabel'
-			? SDFNS + 'fuzzyLabel'
+			? fuzzyPropIri()
 			: a.prop === 'comment' || a.prop === 'label'
 				? RDFS + a.prop
 				: a.prop;
@@ -4449,7 +4431,7 @@ function annotateAnon(a) {
 				label: 'Annotation property',
 				type: 'select',
 				options: [
-					[SDFNS + 'fuzzyLabel', 'fuzzyLabel (fuzzy degree)'],
+					[fuzzyPropIri(), (fuzzyLbl() || 'fuzzyLabel') + ' (fuzzy degree)'],
 					[RDFS + 'comment', 'rdfs:comment'],
 					[RDFS + 'label', 'rdfs:label'],
 					['custom', 'other (search below)']
@@ -4462,7 +4444,7 @@ function annotateAnon(a) {
 		(v) => {
 			const prop = v.prop === 'custom' ? toIri(v.pc, 'annprop') : v.prop;
 			let value = v.text;
-			if (prop === SDFNS + 'fuzzyLabel') {
+			if (prop === fuzzyPropIri()) {
 				const dg = parseFloat(v.degree);
 				if (!(dg >= 0 && dg <= 1)) return { error: 'degree must be in [0,1]' };
 				value = `<fuzzyOwl2 fuzzyType="axiom"><Degree value="${dg}"/></fuzzyOwl2>`;
@@ -4489,7 +4471,7 @@ function annotateAnon(a) {
 		wrap.previousElementSibling.style.display = on ? '' : 'none';
 	};
 	const upd = () => {
-		const fz = sel.value === SDFNS + 'fuzzyLabel';
+		const fz = sel.value === fuzzyPropIri();
 		vis('degree', fz);
 		vis('text', !fz);
 		vis('pc', sel.value === 'custom');

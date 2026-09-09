@@ -7,7 +7,7 @@ API handler goes through to query it:
     db()               thread-local ``sqlite3`` connection to the index of the current workspace
     get_id(iri)        node id of an IRI
     node_json(row)     JSON view of a ``nodes`` row (the entity object sent to the browser)
-    fuzzy_ids()        cached set of entity ids annotated ``sdf:isFuzzy``
+    fuzzy_ids()        cached set of fuzzy entity ids (fuzzy annotation + equivalence closure)
     declared_in(graph) SQL fragment restricting a query to entities declared in one module
     DB                 proxy Path of the current index file (follows workspace switches)
 
@@ -21,7 +21,7 @@ import threading
 from ontoviewer import anon, config, indexer, workspace
 
 LOCAL = threading.local()  # one SQLite connection per server thread
-FUZZY_CACHE = {}  # ids of the entities annotated isFuzzy (per index build)
+FUZZY_CACHE = {}  # fuzzy entity ids and their equivalence sources (per index build + label)
 REQUEST = threading.local()  # per-request context: .active = file of the active ontology (display names)
 DECL_CACHE = {}  # node id -> module file declaring it (per index build)
 PREFIX_CACHE = {}  # namespace -> prefix, from the module headers (per workspace)
@@ -150,23 +150,65 @@ def short(iri):
 
 
 def fuzzy_ids():
-    """ids of entities annotated sdf:isFuzzy true (cached per index build).
+    """ids of the fuzzy entities (cached per index build and per configured label).
 
-    The cache key is (index path, index mtime), so the set is recomputed after a
-    workspace switch or a rebuild.  Returns an empty set when the ``isFuzzy``
-    annotation property is not in the index at all.
+    An entity is fuzzy when it carries the fuzzy annotation — any annotation property whose
+    local name is ``config.fuzzy_label()``, default ``fuzzyLabel`` — or when it is connected
+    to an annotated entity through a chain of owl:equivalentClass / owl:equivalentProperty
+    axioms (both directions).  An empty configured label disables fuzziness entirely
+    (classical crisp ontology).  ``fuzzy_via()`` maps each equivalence-derived id to the
+    annotated ids it inherits from.
     """
-    key = (str(workspace.db_path()), DB.stat().st_mtime if DB.exists() else 0)
+    name = config.fuzzy_label()
+    key = (str(workspace.db_path()), DB.stat().st_mtime if DB.exists() else 0, name)
     if FUZZY_CACHE.get("key") != key:
-        pi = get_id(config.IS_FUZZY)
-        ids = set()
-        if pi is not None:
-            # subjects of  <s> sdf:isFuzzy "true"|"1"  (literal object, any datatype)
-            ids = {
-                r[0] for r in db().execute("SELECT s FROM stmt WHERE p=? AND o_lit IN ('true','1')", (pi,)).fetchall()
-            }
-        FUZZY_CACHE.update({"key": key, "ids": ids})
+        ids, via = set(), {}
+        props = (
+            [r[0] for r in db().execute("SELECT id FROM nodes WHERE lname=?", (name.lower(),)).fetchall()]
+            if name
+            else []
+        )
+        if props:
+            qs = ",".join(map(str, props))
+            ids = {r[0] for r in db().execute(f"SELECT DISTINCT s FROM stmt WHERE p IN ({qs})").fetchall()}
+        if ids:
+            eq = [i for i in (get_id(config.OWL_NS + "equivalentClass"), get_id(config.OWL_NS + "equivalentProperty")) if i]
+            edges = {}  # undirected adjacency over the named equivalence axioms
+            for s, o in (
+                db().execute(f"SELECT s, o_id FROM stmt WHERE p IN ({','.join(map(str, eq))}) AND o_id IS NOT NULL").fetchall()
+                if eq
+                else []
+            ):
+                edges.setdefault(s, set()).add(o)
+                edges.setdefault(o, set()).add(s)
+            own, seen = set(ids), set()
+            for start in edges:  # every member of a component with an annotated entity is fuzzy
+                if start in seen:
+                    continue
+                comp, todo = [start], [start]
+                seen.add(start)
+                while todo:
+                    for n in edges[todo.pop()]:
+                        if n not in seen:
+                            seen.add(n)
+                            comp.append(n)
+                            todo.append(n)
+                srcs = own & set(comp)
+                if srcs:
+                    for n in comp:
+                        if n not in own:
+                            ids.add(n)
+                            via[n] = srcs
+        FUZZY_CACHE.update({"key": key, "ids": ids, "via": via})
     return FUZZY_CACHE["ids"]
+
+
+def fuzzy_via():
+    """{entity id → set of annotated fuzzy ids it is equivalent to}: only entities whose
+    fuzziness is inherited through equivalence appear (with the annotated sources reachable
+    from them); entities carrying their own fuzzy annotation are absent."""
+    fuzzy_ids()  # ensure the cache is fresh
+    return FUZZY_CACHE.get("via", {})
 
 
 def node_json(row):
