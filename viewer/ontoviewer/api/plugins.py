@@ -9,10 +9,16 @@ The listed files are injected into the page at start-up (main.js) after the core
 they can use every global helper and the ``registerView()`` hook; other files of the package
 (images, data) are served under ``/plugins/<name>/…``.  See PLUGINS.md for the format.
 
+A package may also declare a Python backend (``"backend": "backend.py"``): a module inside
+the package defining ``GET_ROUTES`` / ``POST_ROUTES`` dicts, served under
+``/api/p/<name>/<route>`` (``load_backends`` / ``backend_call``); the front-end reaches
+them with the ``papi()`` / ``ppost()`` helpers of core.js.
+
 Routes (see ``ontoviewer.api`` and ``ontoviewer.http``):
     GET  /api/plugins          → plugin_list
     POST /api/plugins/install  → handle_install (multipart zip, read directly by ``http.py``)
     POST /api/plugins/remove   → plugin_remove
+    *    /api/p/<name>/<route> → backend_call (dispatched by ``http.py``)
 """
 
 import cgi
@@ -48,6 +54,7 @@ def _entry(d, mf):
     for f in js:
         m = d / (pathlib.Path(f).stem + ".min.js")
         js_min.append(m.name if m.is_file() else f)
+    b = BACKENDS.get(d.name) or {}
     return {
         "name": d.name,
         "title": mf.get("title", d.name),
@@ -56,6 +63,8 @@ def _entry(d, mf):
         "js": js,
         "js_min": js_min,
         "css": mf.get("css", []),
+        "backend": mf.get("backend"),
+        "backend_error": b.get("error"),
     }
 
 
@@ -100,6 +109,7 @@ def plugin_remove(c, p):
     if not (d.is_dir() and (d / "plugin.json").is_file()):
         raise FileNotFoundError(f"plugin {name} is not installed")
     shutil.rmtree(d)
+    load_backends()  # its /api/p/<name>/ routes disappear immediately
     return {"removed": name, "builtin": bool(p.get("builtin"))}
 
 
@@ -155,4 +165,72 @@ def handle_install(handler):
             shutil.rmtree(dest)
             err = (e.stderr or b"").decode(errors="replace").strip().splitlines()
             raise ValueError(f'"{f}" has a JavaScript syntax error: {err[0] if err else "see terser"}')
-    return {"installed": name, "version": str(mf.get("version", "")), "js": mf.get("js", [])}
+    load_backends()  # a declared backend goes live immediately (or records its import error)
+    err = (BACKENDS.get(name) or {}).get("error")
+    return {"installed": name, "version": str(mf.get("version", "")), "js": mf.get("js", []), "backend_error": err}
+
+
+# ---------------------------------------------------------------- python backends
+
+BACKENDS = {}  # plugin name -> {"error": str | None, "get": {route: fn}, "post": {route: fn}}
+
+
+def load_backends():
+    """(Re)import the ``backend`` module declared by each package (built-in and custom).
+
+    ``plugin.json`` may carry ``"backend": "backend.py"``: a Python file inside the package
+    defining ``GET_ROUTES = {"route": fn(query)}`` and/or ``POST_ROUTES = {"route":
+    fn(payload)}`` (JSON-serialisable return values), served under ``/api/p/<name>/<route>``.
+    The module can import ``ontoviewer`` (store, config, workspace…) for read access to the
+    index.  Import errors never break the server: they are recorded per plugin and surfaced
+    by the Plugins dialog and by every call to the failed backend.
+    """
+    import importlib.util
+
+    BACKENDS.clear()
+    for base in (BUILTIN_DIR, PLUGINS_DIR):
+        if not base.is_dir():
+            continue
+        for d in sorted(base.iterdir()):
+            if not (d.is_dir() and (d / "plugin.json").is_file()):
+                continue
+            try:
+                mf = json.load(open(d / "plugin.json"))
+            except Exception:
+                continue
+            back = mf.get("backend")
+            if not back:
+                continue
+            entry = {"error": None, "get": {}, "post": {}}
+            src = (d / back).resolve()
+            try:
+                if d.resolve() not in src.parents:
+                    raise ValueError("backend must be a file inside the package")
+                if not src.is_file():
+                    raise FileNotFoundError(f"{back} not found in the package")
+                spec = importlib.util.spec_from_file_location(f"ontoviewer_plugin_{d.name}", src)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                entry["get"] = dict(getattr(mod, "GET_ROUTES", None) or {})
+                entry["post"] = dict(getattr(mod, "POST_ROUTES", None) or {})
+            except Exception as e:
+                entry["error"] = f"{type(e).__name__}: {e}"
+            BACKENDS[d.name] = entry
+
+
+def backend_call(method, name, route, arg):
+    """Dispatch one ``/api/p/<name>/<route>`` request to the plugin's backend function.
+
+    ``arg`` is the parsed query string (GET) or the JSON payload (POST).  Raises when the
+    plugin has no backend, its import failed, or the route is unknown (→ HTTP 400 with the
+    message).
+    """
+    b = BACKENDS.get(name)
+    if b is None:
+        raise FileNotFoundError(f"plugin {name} has no backend")
+    if b["error"]:
+        raise RuntimeError(f"the backend of {name} failed to load: {b['error']}")
+    fn = b["get" if method == "GET" else "post"].get(route)
+    if fn is None:
+        raise FileNotFoundError(f"unknown {method} route {route!r} of plugin {name}")
+    return fn(arg)

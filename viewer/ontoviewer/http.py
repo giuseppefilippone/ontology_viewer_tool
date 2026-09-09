@@ -4,11 +4,13 @@ file downloads and PDF responses.
 GET  /, /index.html        → static/index.html
 GET  /static/<path>        → static files (css, js)
 GET  /api/export_file      → streamed download of a generated export (.fdl)
+GET  /api/p/<id>/<route>   → the Python backend of a plugin package (``plugins.backend_call``)
 GET  /api/<route>          → ``ontoviewer.api.GET_ROUTES`` (query string → JSON)
 POST /api/pdf              → LaTeX fragment compiled to PDF
 POST /api/upload           → multipart upload of an ontology file
 POST /api/reindex          → background rebuild of the index
 POST /api/shutdown         → clean stop of the server (used by the header stop button and stop_viewer.sh)
+POST /api/p/<id>/<route>   → the Python backend of a plugin package (``plugins.backend_call``)
 POST /api/<route>          → ``ontoviewer.api.POST_ROUTES`` (JSON payload → JSON)
 
 Entry point: ``serve(port)`` (called by ``server.py``).  The server binds to 127.0.0.1 only
@@ -42,6 +44,7 @@ def serve(port):
     The browser is opened by a timer half a second later, once the server is listening.
     """
     workspace.migrate_index_names()  # one-off: order-insensitive index keys
+    plugins.load_backends()  # /api/p/<id>/ routes of the packages that declare one
 
     if not store.DB.exists():
         print("index missing: build started in the background (see the bar at the top of the app)")
@@ -128,6 +131,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             with open(f, "rb") as fh:
                 shutil.copyfileobj(fh, self.wfile, 1 << 20)  # 1 MB chunks, file never fully in memory
+        elif u.path.startswith("/api/p/"):  # Python backend of a plugin package
+            try:
+                _, _, _, name, route = u.path.split("/", 4)
+                self._send(200, json.dumps(plugins.backend_call("GET", name, route, parse_qs(u.query))).encode())
+            except Exception as e:
+                self._send(400, json.dumps({"error": str(e)}).encode())
         elif u.path in api.GET_ROUTES:
             try:
                 self._send(200, json.dumps(api.GET_ROUTES[u.path](parse_qs(u.query))).encode())
@@ -174,7 +183,13 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:  # malformed JSON body → 400 instead of a dropped connection
             self._send(400, json.dumps({"error": f"invalid JSON body: {e}"}).encode())
             return
-        if path == "/api/pdf":
+        if path.startswith("/api/p/"):  # Python backend of a plugin package
+            try:
+                _, _, _, name, route = path.split("/", 4)
+                self._send(200, json.dumps(plugins.backend_call("POST", name, route, payload)).encode())
+            except Exception as e:
+                self._send(400, json.dumps({"error": str(e)}).encode())
+        elif path == "/api/pdf":
             try:
                 data, err = pdf.compile_pdf(payload.get("tex") or "")
             except Exception as e:

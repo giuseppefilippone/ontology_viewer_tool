@@ -271,13 +271,15 @@ function openPlugins() {
 }
 /** Draw the plugin dialog from the /api/plugins payload (builtin + custom packages). @returns {void} */
 function openPluginsDraw(d) {
+	// green badge = the package ships a Python backend (/api/p/<name>/…); red = its import failed
+	const bk = (p) => (p.backend ? (p.backend_error ? ` <span class="badge" style="background:#b3261e" title="${esc(p.backend_error)}">backend error</span>` : ' <span class="badge" style="background:#2e7d32" title="Python backend: /api/p/' + esc(p.name) + '/">backend</span>') : '');
 	const builtins = (d.builtin || [])
 		.slice()
 		.sort((a, b) => (a.title || a.name).localeCompare(b.title || b.name))
 		.map((p) => {
 			const tab = document.querySelector(`#maintabs [data-mt="${p.name}"]`);
 			const on = tab && tab.style.display !== 'none';
-			return `<div class="prow"><div class="val"><b>${esc(p.title || p.name)}</b> <span class="badge" style="background:#6c757d">built-in</span>${on ? '' : ' <span class="badge" style="background:#9a6b12">disabled</span>'}
+			return `<div class="prow"><div class="val"><b>${esc(p.title || p.name)}</b> <span class="badge" style="background:#6c757d">built-in</span>${bk(p)}${on ? '' : ' <span class="badge" style="background:#9a6b12">disabled</span>'}
 <div class="dt">${esc(p.description || '')}</div>
 <div class="dt">plugins/builtin/${esc(p.name)}/ · ${esc((p.js_min || p.js).join(', '))}</div></div>
 <span class="acts" style="opacity:1">${
@@ -292,7 +294,7 @@ function openPluginsDraw(d) {
 	openDialog(
 		`<h3 style="margin-top:0">Plugins</h3>
   <div class="dt" style="margin:4px 0 10px">Front-end plugins installed under <code>viewer/data/plugins/</code>: their JS / CSS load after the core
-at every start and can add views with <code>registerView()</code>. Package format: a zip with <code>plugin.json</code> (name, version, description, js, css) — see PLUGINS.md in the repository.</div>
+at every start and can add views with <code>registerView()</code>. Package format: a zip with <code>plugin.json</code> (name, version, description, js, css, optional <code>backend</code> = a Python module serving <code>/api/p/&lt;name&gt;/…</code>) — see PLUGINS.md in the repository.</div>
   <div class="ptitle" style="margin-top:0">Installed plugins</div>
   <div id="pluglist" style="max-height:30vh;overflow:auto"><span class="dt">loading…</span></div>
   <div style="margin-top:10px"><label class="ibtn" style="margin:0;cursor:pointer;display:inline-flex;align-items:center;gap:6px"
@@ -344,7 +346,7 @@ Reinstalling the same name replaces the plugin (upgrade). Full guide: <a class="
 				.map(
 					(
 						p
-					) => `<div class="prow"><div class="val"><b>${esc(p.name)}</b>${p.version ? ` <span class="badge" style="background:#3457b0">v${esc(p.version)}</span>` : ''}
+					) => `<div class="prow"><div class="val"><b>${esc(p.name)}</b>${p.version ? ` <span class="badge" style="background:#3457b0">v${esc(p.version)}</span>` : ''}${bk(p)}
 <div class="dt">${esc(p.description || 'no description')}</div>
 <div class="dt">files: ${[...p.js, ...(p.css || [])].map(esc).join(', ') || 'none'} · served at <code>/plugins/${esc(p.name)}/</code></div></div>
 <span class="acts" style="opacity:1"><button class="ibtn danger" style="margin:0" onclick="pluginRemove('${esc(p.name)}')"

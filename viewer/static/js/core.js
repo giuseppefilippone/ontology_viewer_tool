@@ -69,6 +69,9 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
  * @returns {Promise<Object>} Parsed JSON body.
  */
 const api = (p, q) => fetch(p + '?' + new URLSearchParams({ ...q, active: activeFile() })).then((r) => r.json());
+/** GET / POST the Python backend of a plugin package: /api/p/<plugin>/<route> (see PLUGINS.md). */
+const papi = (plugin, route, q) => api(`/api/p/${plugin}/${route}`, q);
+const ppost = (plugin, route, payload) => post(`/api/p/${plugin}/${route}`, payload);
 // ---------- active-ontology state (KIT: every view and api() depend on it) ----------
 // ontoData = cached GET /api/ontology response ({ontologies:[{iri,file,imports,annotations}], metrics:
 // {file:{name:value}}, per_module, prefixes:{file:[[prefix,ns]]}}); activeOnt = IRI of the active ontology

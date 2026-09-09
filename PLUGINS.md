@@ -70,7 +70,8 @@ my-plugin.zip
     "version": "1.0",
     "description": "One line shown in the Plugins dialog",
     "js": ["my_views.js"],
-    "css": ["my.css"]
+    "css": ["my.css"],
+    "backend": "backend.py"
 }
 ```
 
@@ -82,8 +83,30 @@ my-plugin.zip
   hidden state.
 - Other files of the package are served under `/plugins/<name>/…` — use that base URL for
   images and data files.
-- Installed plugins are front-end only: they consume the existing JSON API. A plugin that
-  needs its own server endpoint still requires a fork (next sections).
+- A package may also ship a **Python backend**: `"backend": "backend.py"` names a module
+  inside the package defining `GET_ROUTES` / `POST_ROUTES` dicts, served under
+  `/api/p/<name>/<route>`:
+
+  ```python
+  # backend.py — runs inside the viewer server; ontoviewer is importable (read the index
+  # through ontoviewer.store, never write to it from a plugin)
+  from ontoviewer import store
+
+  def stats(q):  # GET /api/p/my-plugin/stats?kind=class
+      kind = q.get("kind", ["class"])[0]
+      n = store.db().execute("SELECT COUNT(*) FROM nodes WHERE kind=?", (kind,)).fetchone()[0]
+      return {"kind": kind, "count": n}
+
+  GET_ROUTES = {"stats": stats}
+  POST_ROUTES = {}  # fn(payload) -> JSON-serialisable dict
+  ```
+
+  The front-end reaches it with `papi('my-plugin', 'stats', {kind: 'class'})` /
+  `ppost('my-plugin', 'route', {...})`. Handler exceptions become `{"error": …}` (HTTP 400).
+  An import error never breaks the server: the Plugins dialog shows a red "backend error"
+  badge with the message, and every call answers with it. Built-in packages may declare a
+  backend the same way. Anything beyond that (new tables, background jobs) still fits a
+  fork better (next sections).
 
 ## Where the code goes (forking the repository)
 
