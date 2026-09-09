@@ -26,6 +26,7 @@ import time; call ``refresh()`` after a workspace switch.  The build is protecte
 file lock (``config.LOCK_FILE``) so the server and a manual run cannot build concurrently.
 """
 
+import shutil
 import sqlite3
 import sys
 import time
@@ -500,6 +501,74 @@ def try_lock():
         return None
 
 
+def add(new_files):
+    """Incremental add: extend the index of the base workspace with ``new_files`` only.
+
+    The base workspace is the current one WITHOUT the new files; its index must exist
+    (otherwise a full ``build`` runs instead).  The new modules are indexed alone into a
+    mini database (``build`` with the module globals patched), which is then merged —
+    node ids remapped through the IRIs — into a copy of the base index; the merged file
+    atomically replaces ``DB``.  The base index file is kept (it still belongs to the
+    base workspace in the recent list) and pending editor changes of the copy survive.
+    """
+    global FILES, DB
+    ws = workspace.load()
+    base = workspace.db_path({"dir": ws["dir"], "files": [f for f in ws["files"] if f not in new_files]})
+    if not base.exists():
+        print("base index missing (", base.name, "): full rebuild instead")
+        return build()
+    mini, real = DB.with_suffix(".add.db"), DB
+    FILES, DB = list(new_files), mini
+    try:
+        build()  # writes the mini index of the new modules only
+    finally:
+        FILES, DB = ws["files"], real
+    print("merging into a copy of", base.name, "...")
+    t0 = time.time()
+    tmp = DB.with_suffix(".db.tmp")
+    shutil.copyfile(base, tmp)
+    con = sqlite3.connect(tmp)
+    con.executescript("PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; PRAGMA cache_size=-262144;")
+    con.execute("ATTACH ? AS m", (str(mini),))
+    # nodes: insert the unseen IRIs, then fill kind/label/lname the base did not know
+    con.execute("INSERT INTO nodes(iri,label,kind,lname) SELECT iri,label,kind,lname FROM m.nodes WHERE iri NOT IN (SELECT iri FROM nodes)")
+    for col in ("kind", "label", "lname"):
+        con.execute(
+            f"""UPDATE nodes SET {col}=(SELECT mn.{col} FROM m.nodes mn WHERE mn.iri=nodes.iri)
+                WHERE {col} IS NULL AND EXISTS(SELECT 1 FROM m.nodes mn WHERE mn.iri=nodes.iri AND mn.{col} IS NOT NULL)"""
+        )
+    # id map mini -> merged, through the IRIs (covers pre-existing and new nodes alike)
+    con.execute("CREATE TEMP TABLE map(mid INTEGER PRIMARY KEY, nid INT)")
+    con.execute("INSERT INTO map SELECT mn.id, n.id FROM m.nodes mn JOIN nodes n ON n.iri = mn.iri")
+    con.execute(
+        """INSERT INTO stmt SELECT sm.nid, pm.nid, om.nid, s.o_lit, s.dt, s.lang, s.graph
+           FROM m.stmt s JOIN map sm ON sm.mid=s.s JOIN map pm ON pm.mid=s.p LEFT JOIN map om ON om.mid=s.o_id"""
+    )
+    con.execute("INSERT INTO metrics SELECT graph, name, value FROM m.metrics")
+    con.execute(
+        """INSERT INTO axiom_ann SELECT sm.nid, pm.nid, om.nid, a.o_lit, rm.nid, a.value, a.graph
+           FROM m.axiom_ann a JOIN map sm ON sm.mid=a.s JOIN map pm ON pm.mid=a.p
+           LEFT JOIN map om ON om.mid=a.o_id JOIN map rm ON rm.mid=a.prop"""
+    )
+    con.execute(
+        """INSERT INTO bnode_refs SELECT sm.nid, rm.nid, vm.nid, b.graph
+           FROM m.bnode_refs b JOIN map sm ON sm.mid=b.s JOIN map rm ON rm.mid=b.ref JOIN map vm ON vm.mid=b.via"""
+    )
+    con.execute(
+        """INSERT OR REPLACE INTO datatype_bounds SELECT dm.nid, d.kmin, d.kmax
+           FROM m.datatype_bounds d JOIN map dm ON dm.mid=d.id"""
+    )
+    con.commit()
+    con.execute("DETACH m")
+    con.close()
+    mini.unlink()
+    tmp.replace(DB)
+    cache = base.with_suffix(".axioms.json")  # the TBox disk cache is keyed per module: still valid
+    if cache.exists():
+        shutil.copyfile(cache, DB.with_suffix(".axioms.json"))
+    print(f"incremental add done in {time.time()-t0:.0f}s:", ", ".join(new_files), "->", DB.name)
+
+
 def build_running():
     """True when another process currently holds the build lock (probe: acquire and release)."""
     fd = try_lock()
@@ -510,13 +579,16 @@ def build_running():
 
 
 if __name__ == "__main__":
-    # command line: build the index of the current workspace if stale (or always with --force)
+    # command line: build the index of the current workspace if stale (or always with --force);
+    # --add <file>… = incremental: index only those modules and merge them into the base index
     refresh()
     lock = try_lock()  # kept open until exit: holds the lock for the whole build
     if lock is None:
         print("another index build is already running — skipped")
         sys.exit(0)
-    if stale() or "--force" in sys.argv:
+    if "--add" in sys.argv:
+        add(sys.argv[sys.argv.index("--add") + 1 :])
+    elif stale() or "--force" in sys.argv:
         build()
     else:
         print("index up to date:", DB)

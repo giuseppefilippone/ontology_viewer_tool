@@ -170,20 +170,39 @@ def ws_open(c, p):
     if p.get("url"):  # File → Open from URL…: download into uploads/ first
         p = {**p, "path": str(_fetch_ontology(p["url"], config.UPLOADS_DIR))}
     paths = [_ensure_rdfxml(x) for x in (p.get("paths") or [p["path"]])]
-    if p.get("add"):  # Open dialog "Add to the current workspace": one shared index (rebuilt)
+    add_files = []
+    if p.get("add"):  # Open dialog "Add to the current workspace": one shared index
         cur = workspace.load()
+        cur_db = workspace.db_path(cur)
         paths = [str(pathlib.Path(cur["dir"]) / f) for f in cur["files"]] + paths
     ws, unresolved = workspace.resolve(paths)
+    if p.get("add") and cur_db.exists():
+        # the current index exists: the new modules can be indexed alone and merged into a
+        # copy of it (indexer.add) instead of rebuilding everything from scratch
+        add_files = [f for f in ws["files"] if f not in cur["files"]]
     workspace.save(ws)
     indexer.refresh()
     ONTOLOGY_CACHE.clear()
     started = False
-    if not store.DB.exists():
-        started = api_reindex().get("started", False)
+    # a parallel request (the browser keeps polling) may have already touched the new index
+    # path through sqlite3.connect, leaving an empty file: treat that as "no index"
+    have = store.DB.exists() and store.DB.stat().st_size > 4096
+    if not have:
+        prev = REBUILD["proc"]
+        if add_files and not indexer.build_running() and (prev is None or prev.poll() is not None):
+            REBUILD["proc"] = subprocess.Popen(
+                [sys.executable, "-u", "-m", "ontoviewer.indexer", "--add", *add_files],
+                cwd=config.VIEWER_DIR,
+                stdout=open(config.BUILD_LOG, "w"),
+                stderr=subprocess.STDOUT,
+            )
+            started = True
+        else:
+            started = api_reindex().get("started", False)
     return {
         "workspace": ws,
         "unresolved_imports": unresolved,
-        "index_exists": store.DB.exists(),
+        "index_exists": have,
         "reindex_started": started,
     }
 
