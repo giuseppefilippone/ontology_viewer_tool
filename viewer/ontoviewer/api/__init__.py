@@ -43,6 +43,7 @@ NO_CONNECTION = {
     "/api/diff/fetch",
     "/api/plugins/remove",
     "/api/indexes/remove",
+    "/api/queries/save",
 }
 
 
@@ -89,6 +90,7 @@ GET_ROUTES = {
     "/api/check/empty": ontology.api_check_empty,
     "/api/indexes": ontology.api_indexes,
     "/api/sources": ontology.api_sources,
+    "/api/queries": ontology.api_queries,
 }
 
 # POST: path → handler(c, p).  /api/export_fdl and /api/fdl/generate share one handler (the
@@ -138,4 +140,5 @@ POST_ROUTES = {
     "/api/diff/fetch": ontology.diff_fetch,
     "/api/plugins/remove": plugins.plugin_remove,
     "/api/indexes/remove": ontology.index_remove,
+    "/api/queries/save": ontology.queries_save,
 }

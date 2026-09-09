@@ -2113,3 +2113,27 @@ table.metrics td:nth-child(n + 2) {
 	max-height: 72vh;
 	overflow: auto;
 }
+
+/* transient notifications (bottom-right), e.g. "ontology files changed on disk" */
+#toasts {
+	position: fixed;
+	right: 16px;
+	bottom: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	z-index: 80;
+}
+
+.toast {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	max-width: 420px;
+	background: var(--panel);
+	border: 1px solid var(--line-strong);
+	border-radius: 8px;
+	padding: 10px 12px;
+	font-size: 13px;
+	box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+}

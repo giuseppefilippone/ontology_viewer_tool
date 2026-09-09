@@ -258,6 +258,7 @@ def ui_config_save(c, p):
     Payload keys taken into account: tab_order, entity_tab_order, hidden_tabs /
     hidden_entity_tabs (main tabs / Entities sidebar views hidden from the Window menu),
     render_mode (+ legacy render_labels), reasoner_engine, reasoner_timeout, count_annotations,
+    fuzzy_label (local name of the fuzzy annotation property, '' = crisp ontology),
     sidebar_width, byclass_width, ent_tab ({entity kind: active tab of the entity view});
     anything else is ignored.  ``c`` is None (``NO_CONNECTION``).
     Side effect: the file is rewritten.  Returns the complete configuration after the merge.
@@ -276,6 +277,7 @@ def ui_config_save(c, p):
                 "render_labels",
                 "render_mode",
                 "reasoner_engine",
+                "fuzzy_label",
                 "reasoner_timeout",
                 "count_annotations",
                 "sidebar_width",
@@ -1072,3 +1074,30 @@ def api_sources(q):
         except ET.ParseError:
             catalog = [{"iri": "(catalog-v001.xml is not well-formed XML)", "uri": ""}]
     return {"dir": str(wdir), "sources": out, "catalog": catalog}
+
+
+def api_queries(q):
+    """Saved fuzzy-query set of the current workspace (Reasoner tab): GET side.
+
+    No query parameters.  Returns {"queries": […], "individuals": […]} as saved by the POST
+    route, or empty lists when nothing was saved for this workspace.
+    """
+    f = config.DATA_DIR / f"queries_{workspace.key()}.json"
+    if f.is_file():
+        try:
+            return json.load(open(f))
+        except Exception:
+            pass
+    return {"queries": [], "individuals": []}
+
+
+def queries_save(c, p):
+    """Persist the fuzzy-query set of the current workspace (data/queries_<key>.json).
+
+    Payload: "queries": [{type, args:{name:{v, iri}}}…], "individuals": [iri…].  ``c`` is None.
+    Returns {"saved": number of queries}.
+    """
+    f = config.DATA_DIR / f"queries_{workspace.key()}.json"
+    data = {"queries": p.get("queries") or [], "individuals": p.get("individuals") or []}
+    json.dump(data, open(f, "w"), indent=1)
+    return {"saved": len(data["queries"])}

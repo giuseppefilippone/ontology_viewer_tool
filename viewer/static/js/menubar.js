@@ -369,11 +369,12 @@ function mbUndo() {
 	});
 }
 /** Edit → Rename entity IRI: prompt on the selected entity, then /api/edit/rename. */
-function mbRename() {
-	if (!selIri) return;
-	const v = prompt('New IRI for the selected entity', selIri);
-	if (!v || v === selIri) return;
-	post('/api/edit/rename', { iri: selIri, new_iri: v }).then((r) => {
+function mbRename(iri) {
+	iri = iri || selIri;
+	if (!iri) return;
+	const v = prompt('New IRI for the entity', iri);
+	if (!v || v === iri) return;
+	post('/api/edit/rename', { iri, new_iri: v }).then((r) => {
 		if (r.error) {
 			alert(r.error);
 			return;
@@ -403,6 +404,122 @@ function mbServerLog() {
 		$('#modal').style.display = 'flex';
 	});
 }
+
+
+// ---------- context menu (right click) on the sidebar tree / lists, Protégé-style ----------
+/** Open the entity context menu at the pointer. `iri` from the row's show() handler. */
+function ctxOpen(ev, iri) {
+	ev.preventDefault();
+	const kind = listKind();
+	const canHier = ['class', 'objprop', 'dataprop', 'annprop'].includes(kind);
+	const item = (l, js, off) =>
+		`<div class="rmi ${off ? 'off' : ''}" onclick="ctxClose();${off ? '' : js}">${l}</div>`;
+	const m = $('#ctxmenu');
+	m.innerHTML =
+		`<div class="rmh" style="max-width:260px;overflow:hidden;text-overflow:ellipsis">${esc(short(iri))}</div>` +
+		item('Open', `openEntity(${JSON.stringify(iri)})`) +
+		'<div class="rms"></div>' +
+		item('Create child…', `ctxNewChild(${JSON.stringify(iri)})`, !canHier) +
+		item('Create sibling…', `ctxNewSibling(${JSON.stringify(iri)})`, !canHier) +
+		'<div class="rms"></div>' +
+		item('Rename IRI…', `mbRename(${JSON.stringify(iri)})`) +
+		item('Duplicate…', `mbDuplicate(${JSON.stringify(iri)})`) +
+		item('Deprecate', `mbDeprecate(${JSON.stringify(iri)})`) +
+		item('Delete', `deleteEntity(${JSON.stringify(iri)})`) +
+		'<div class="rms"></div>' +
+		item('Copy sub-hierarchy as indented text', `ctxCopySubtree(${JSON.stringify(iri)})`, !canHier);
+	m.style.left = Math.min(ev.clientX, innerWidth - 280) + 'px';
+	m.style.top = Math.min(ev.clientY, innerHeight - 300) + 'px';
+	m.hidden = false;
+}
+/** Hide the context menu. */
+function ctxClose() {
+	const m = $('#ctxmenu');
+	if (m) m.hidden = true;
+}
+/** Context: create a child of the clicked entity (kind = current sidebar tab). */
+function ctxNewChild(iri) {
+	const kind = listKind();
+	if (_subPredOf(kind)) _newUnderIri(kind, iri, `New child of ${short(iri)}`, iri);
+}
+/** Context: create a sibling — first asserted parent fetched from the entity. */
+function ctxNewSibling(iri) {
+	const kind = listKind(),
+		pred = _subPredOf(kind);
+	if (!pred) return;
+	api('/api/entity', { iri }).then((d) => {
+		const grp = (d.out || []).find((g) => g.piri === pred);
+		const parent = grp && (grp.values.find((x) => x.iri) || {}).iri;
+		if (!parent) {
+			alert(`${short(iri)} has no asserted parent.`);
+			return;
+		}
+		_newUnderIri(kind, parent, `New sibling of ${short(iri)} (under ${short(parent)})`, iri);
+	});
+}
+/** Like _newUnder but anchored on an arbitrary iri (namespace prefill source). */
+function _newUnderIri(kind, parent, title, nsFrom) {
+	const base = nsFrom || parent;
+	const ns = base.slice(0, Math.max(base.lastIndexOf('#'), base.lastIndexOf('/')) + 1);
+	openForm(
+		title,
+		[
+			{ name: 'name', label: 'Local name (or full IRI)', required: true },
+			{ name: 'ns', label: 'Namespace (used if the name is not an IRI)', value: ns },
+			{ name: 'label', label: 'rdfs:label (optional)' },
+			{ name: 'graph', label: 'Target module', type: 'module', value: activeFile() || modules[0] },
+		],
+		(v) =>
+			post('/api/edit/create', { kind, iri: entityIri(v.name, v.ns), label: v.label || null, graph: v.graph }).then((r) => {
+				if (r.error) return r;
+				return post('/api/edit/add', { s: r.created, p: _subPredOf(kind), o: parent, graph: v.graph }).then((r2) => {
+					if (!r2.error) {
+						refreshChanges();
+						openEntity(r.created);
+					}
+					return r2;
+				});
+			}),
+		`The new entity is created and asserted under ${short(parent)} as a pending change.`
+	);
+}
+/** Context: copy the subtree rooted at the entity as tab-indented text (Protégé: Edit menu). */
+function ctxCopySubtree(iri) {
+	api('/api/tree', { kind: listKind(), graph: scopeGraph(), inferred: infViewOn() ? 1 : '' }).then((d) => {
+		const find = (ns) => {
+			for (const n of ns || []) {
+				if (n.iri === iri) return n;
+				const hit = find(n.children);
+				if (hit) return hit;
+			}
+			return null;
+		};
+		const root = find(d.roots);
+		if (!root) {
+			alert('Node not found in the current tree (check the scope).');
+			return;
+		}
+		const lines = [];
+		const walk = (n, depth) => {
+			lines.push('\t'.repeat(depth) + n.name);
+			(n.children || []).forEach((c) => walk(c, depth + 1));
+		};
+		walk(root, 0);
+		navigator.clipboard
+			.writeText(lines.join('\n'))
+			.then(() => alert(`${lines.length} row(s) copied to the clipboard.`))
+			.catch(() => downloadText(short(iri) + '_hierarchy.txt', lines.join('\n')));
+	});
+}
+// right click on a sidebar row: the row's onclick carries show('<encoded iri>')
+document.addEventListener('contextmenu', (e) => {
+	const row = e.target.closest('#list [onclick*="show("], #list a.ent[onclick*="show("]');
+	if (!row) return;
+	const m = (row.getAttribute('onclick') || '').match(/show\('([^']+)'\)/);
+	if (!m) return;
+	ctxOpen(e, decodeURIComponent(m[1]));
+});
+document.addEventListener('click', () => ctxClose());
 
 /** Entity navigation history (Protégé: Navigation → history). show() records via histVisit. */
 const HIST = { back: [], fwd: [], cur: null, nav: false };
@@ -508,11 +625,12 @@ function mbConvertClass(to) {
 }
 
 /** Edit → Duplicate selected entity: prompt the new IRI, copy every outgoing statement. */
-function mbDuplicate() {
-	if (!selIri) return;
-	const v = prompt('IRI of the duplicate', selIri + '_copy');
-	if (!v || v === selIri) return;
-	post('/api/edit/duplicate', { iri: selIri, new_iri: v }).then((r) => {
+function mbDuplicate(iri) {
+	iri = iri || selIri;
+	if (!iri) return;
+	const v = prompt('IRI of the duplicate', iri + '_copy');
+	if (!v || v === iri) return;
+	post('/api/edit/duplicate', { iri, new_iri: v }).then((r) => {
 		if (r.error) {
 			alert(r.error);
 			return;
@@ -522,10 +640,11 @@ function mbDuplicate() {
 	});
 }
 /** Edit → Deprecate selected entity: add owl:deprecated "true"^^xsd:boolean as a pending change. */
-function mbDeprecate() {
-	if (!selIri) return;
+function mbDeprecate(iri) {
+	iri = iri || selIri;
+	if (!iri) return;
 	post('/api/edit/add', {
-		s: selIri,
+		s: iri,
 		p: 'http://www.w3.org/2002/07/owl#deprecated',
 		lit: 'true',
 		dt: 'http://www.w3.org/2001/XMLSchema#boolean',
@@ -535,7 +654,7 @@ function mbDeprecate() {
 			return;
 		}
 		refreshChanges();
-		show(encodeURIComponent(selIri));
+		if (selIri) show(encodeURIComponent(selIri));
 	});
 }
 /** Refactor → Rename namespace: mass rename of an IRI prefix over all entities. */

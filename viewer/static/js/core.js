@@ -122,7 +122,7 @@ const fmtBytes = (b) => {
 	}
 	return (i ? b.toFixed(1) : b) + ' ' + u[i];
 };
-// fuzzy entities (sdf:isFuzzy) get their own colour per kind, so they stand out from crisp ones
+// fuzzy entities (fuzzy annotation or equivalence with one) get their own colour per kind, so they stand out from crisp ones
 const KCF = {
 	class: '#f28c28',
 	datatype: '#e6a700',
@@ -140,6 +140,40 @@ const KCF = {
  */
 const dot = (k, f, def) =>
 	`<span class="kind${def ? ' def' : ''}" style="background:${f ? KCF[k] || '#f28c28' : KC[k] || '#999'}${f ? ';box-shadow:0 0 0 2px #fff,0 0 0 3px ' + (KCF[k] || '#f28c28') : ''}" title="${def ? 'defined class (equivalentClass axiom)' : ''}${f ? (def ? ', ' : '') + 'fuzzy entity' : ''}">${def ? '≡' : ''}</span>`;
+
+
+/**
+ * Transient notification in the bottom-right corner (auto-hides after 8 s), with an optional
+ * action button. Used e.g. when the ontology files change on disk outside the app.
+ * @param {string} msg  text of the toast.
+ * @param {string} [actionLabel]  label of the action button.
+ * @param {Function} [action]  click handler of the action button.
+ * @returns {void}
+ */
+function toast(msg, actionLabel, action) {
+	let box = $('#toasts');
+	if (!box) {
+		box = document.createElement('div');
+		box.id = 'toasts';
+		document.body.appendChild(box);
+	}
+	const el = document.createElement('div');
+	el.className = 'toast';
+	el.innerHTML = `<span>${esc(msg)}</span>`;
+	if (actionLabel) {
+		const b = document.createElement('button');
+		b.className = 'ibtn';
+		b.style.margin = '0';
+		b.textContent = actionLabel;
+		b.onclick = () => {
+			el.remove();
+			action && action();
+		};
+		el.appendChild(b);
+	}
+	box.appendChild(el);
+	setTimeout(() => el.remove(), 8000);
+}
 
 /** Material icon paths (24px viewBox) used by ic(); one source for every button/link icon of the app. */
 const ICONS = {
@@ -416,6 +450,10 @@ function ixRefresh() {
 				.filter((f) => f.newer)
 				.map((f) => f.name)
 				.join(', ');
+			if (!window._wasStale) {
+				window._wasStale = true; // one toast per transition: files edited outside the app
+				toast(`Ontology files changed on disk: ${n}. Update the index to see the changes.`, 'Update index', () => $('#ixbtn')?.click());
+			}
 			chip.textContent = 'ontologies changed';
 			chip.title = 'Files newer than the index: ' + n;
 			chip.className = 'chip warn';
@@ -423,6 +461,7 @@ function ixRefresh() {
 			btn.title = 'Rebuild the index from the changed files (the viewer keeps working on the current index meanwhile)';
 			btn.style.display = '';
 		} else {
+			window._wasStale = false;
 			chip.textContent = 'index up to date';
 			chip.title = 'The search index matches the ontology files';
 			chip.className = 'chip ok';
