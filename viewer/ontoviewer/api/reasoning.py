@@ -28,7 +28,7 @@ import time
 
 from rdflib.namespace import RDFS
 
-from ontoviewer import config, dlquery, editor, indexer, reasoner, rules
+from ontoviewer import config, dlquery, editor, indexer, reasoner, rules, runs
 
 
 def reason_fuzzy(c, p):
@@ -45,15 +45,27 @@ def reason_fuzzy(c, p):
     Returns {"stats": {"schema_files", "individuals", "triples", "renamed"}, "queries": [fdl
     line…], "seconds", "workdir", "log", "steps": [{"step", "seconds"…}…], "fdl": str,
     "results": [{"query", "result", "value", "consistent", "seconds"} | {"query", "error"}…]},
-    or the same with "error" (timeout, converter failure, no output).
+    or the same with "error" (timeout, converter failure, no output).  A successful run is
+    snapshotted in the per-workspace run history (``ontoviewer.runs``, "run_saved").
     """
-    return reasoner.run_fuzzy(
+    res = reasoner.run_fuzzy(
         p.get("individuals") or [],
         p.get("queries") or [],
         p.get("provider") or "gurobi",
         p.get("base_iri"),
         int(p.get("timeout") or 600),
     )
+    if not res.get("error"):
+        res["run_saved"] = runs.save(
+            "fuzzy",
+            {
+                "provider": p.get("provider") or "gurobi",
+                "seconds": res.get("seconds"),
+                "results": res.get("results"),
+                "summary": f"{len(res.get('results') or [])} queries",
+            },
+        )
+    return res
 
 
 def reason_classic(c, p):
@@ -66,9 +78,25 @@ def reason_classic(c, p):
 
     Returns {"stats", "seconds", "log", "engine", "classes", "individuals",
     "inferred_subclass": [[class, superclass]…], "inferred_types": [[individual, class]…],
-    "unsatisfiable": [iri…]} or {"error", "stats", …}.
+    "unsatisfiable": [iri…]} or {"error", "stats", …}.  A successful run is snapshotted in
+    the per-workspace run history (``ontoviewer.runs``, "run_saved").
     """
-    return reasoner.run_classic(p.get("individuals") or [], p.get("engine") or "hermit", int(p.get("timeout") or 600))
+    res = reasoner.run_classic(p.get("individuals") or [], p.get("engine") or "hermit", int(p.get("timeout") or 600))
+    if not res.get("error"):
+        res["run_saved"] = runs.save(
+            "classic",
+            {
+                "engine": res.get("engine") or p.get("engine") or "hermit",
+                "seconds": res.get("seconds"),
+                "inferred_subclass": res.get("inferred_subclass"),
+                "inferred_types": res.get("inferred_types"),
+                "unsatisfiable": res.get("unsatisfiable"),
+                "summary": f"{len(res.get('inferred_subclass') or [])} subclass links, "
+                f"{len(res.get('inferred_types') or [])} types, "
+                f"{len(res.get('unsatisfiable') or [])} unsatisfiable",
+            },
+        )
+    return res
 
 
 def api_rules(q):
@@ -253,3 +281,13 @@ def reasoner_clear(c, p):
         for d in config.WORK_DIR.iterdir():
             shutil.rmtree(d, ignore_errors=True) if d.is_dir() else d.unlink(missing_ok=True)
     return {"cleared": before, "now": reasoner_work_info()}
+
+
+def api_runs(q):
+    """GET /api/runs: the saved reasoner runs of the workspace, newest first (see ``ontoviewer.runs``)."""
+    return {"runs": runs.listing()}
+
+
+def api_runs_diff(q):
+    """GET /api/runs/diff?a=<file>&b=<file>: delta between two saved runs of the same kind."""
+    return runs.diff(q.get("a", [""])[0], q.get("b", [""])[0])

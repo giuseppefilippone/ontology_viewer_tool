@@ -182,6 +182,7 @@ function rmenuBody() {
 		<div class="rms"></div>
 		<div class="rmi" onclick="menusClose(); document.querySelector('#maintabs [data-mt=reasoner]')?.click()">${ic('next')} Open the Inferred view…</div>
 		<div class="rmi ${t ? '' : 'off'}" onclick="if(${!!t}){menusClose(); rmenuInferredTree();}">${ic('next')} Inferred class hierarchy</div>
+		<div class="rmi" onclick="menusClose(); mbRunHistory()">${ic('swap')} Run history &amp; diff…</div>
 		<div class="rmh">${t ? `${infEngineName()} · ${t.seconds}s · ${esc(t.when)}${t.stale ? ' · stale' : ''}` : 'no inferred result'}</div>`
 	);
 }

@@ -297,6 +297,68 @@ function mbExportInferred() {
 // ---------- Edit helpers ----------
 
 /** File → Loaded ontology sources…: the module files of the workspace + the catalog mappings. */
+/**
+ * Reasoner menu "Run history & diff…": the saved fuzzy/classic runs of the workspace
+ * (GET /api/runs) with two pick columns; "Compare" shows the delta of two runs of the
+ * same kind (GET /api/runs/diff): fuzzy = per-query answers side by side, classic =
+ * added/removed inferred subclass links / types / unsatisfiable classes.
+ */
+function mbRunHistory() {
+	api('/api/runs', {}).then((d) => {
+		const runs = d.runs || [];
+		const rows = runs
+			.map(
+				(r) => `<tr><td><input type="radio" name="runA" value="${esc(r.file)}"></td>
+<td><input type="radio" name="runB" value="${esc(r.file)}"></td>
+<td style="white-space:nowrap">${esc(r.ts || '')}</td><td>${esc(r.kind || '')}</td><td>${esc(r.engine || '')}</td><td class="dt">${esc(r.summary || '')}</td></tr>`
+			)
+			.join('');
+		openDialog(
+			`<h3 style="margin-top:0">Reasoner run history</h3>
+<div class="dt" style="margin-bottom:6px">Every successful fuzzy or classic run is saved per workspace (last 20). Pick run A and run B of the same kind, then Compare.</div>
+<div style="max-height:38vh;overflow:auto"><table class="props" style="width:100%"><tr><th>A</th><th>B</th><th>when</th><th>kind</th><th>engine</th><th></th></tr>${rows || '<tr><td class="dt" colspan="6">no saved runs yet: run the fuzzy or the classic reasoner first</td></tr>'}</table></div>
+<div style="margin:8px 0"><button class="ibtn" onclick="mbRunsCompare()">Compare A ↔ B</button></div>
+<div id="runsdiff"></div>` + DLG_CLOSE,
+			true
+		);
+	});
+}
+/** "Compare" button of the run-history dialog: fetches and renders the diff of the two picked runs. */
+function mbRunsCompare() {
+	const a = document.querySelector('input[name="runA"]:checked'),
+		b = document.querySelector('input[name="runB"]:checked');
+	const out = $('#runsdiff');
+	if (!a || !b) {
+		out.innerHTML = '<span class="err">pick one run in each column</span>';
+		return;
+	}
+	api('/api/runs/diff', { a: a.value, b: b.value }).then((d) => {
+		if (d.error) {
+			out.innerHTML = `<span class="err">${esc(d.error)}</span>`;
+			return;
+		}
+		const nm = (x) => `<span title="${esc(x)}">${esc(x.split('#').pop().split('/').pop())}</span>`;
+		if (d.kind === 'fuzzy') {
+			out.innerHTML = `<table class="props" style="width:100%"><tr><th>query</th><th>A (${esc(d.a)})</th><th>B (${esc(d.b)})</th></tr>${(d.rows || [])
+				.map(
+					(r) =>
+						`<tr${r.changed ? ' style="font-weight:600;color:var(--acc,#b3261e)"' : ''}><td style="font-family:var(--mono);font-size:11.5px">${esc(r.query || '')}</td><td>${esc(String(r.a ?? '—'))}</td><td>${esc(String(r.b ?? '—'))}</td></tr>`
+				)
+				.join('')}</table><div class="dt" style="margin-top:4px">changed answers are highlighted</div>`;
+			return;
+		}
+		const sect = (title, delta, fmt) =>
+			`<div class="ptitle">${title}</div>` +
+			(delta.added.length || delta.removed.length
+				? delta.added.map((x) => `<div>+ ${fmt(x)}</div>`).join('') + delta.removed.map((x) => `<div>− ${fmt(x)}</div>`).join('')
+				: '<div class="dt">no changes</div>');
+		out.innerHTML =
+			`<div class="dt">A = ${esc(d.a)}, B = ${esc(d.b)}; + only in B, − only in A</div>` +
+			sect('Inferred subclass links', d.inferred_subclass, (x) => `${nm(x[0])} ⊑ ${nm(x[1])}`) +
+			sect('Inferred types', d.inferred_types, (x) => `${nm(x[0])} : ${nm(x[1])}`) +
+			sect('Unsatisfiable classes', d.unsatisfiable, (x) => nm(x[0]));
+	});
+}
 function mbSources() {
 	api('/api/sources', {}).then((d) => {
 		const rows = (d.sources || [])

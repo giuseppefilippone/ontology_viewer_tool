@@ -91,6 +91,8 @@ GET_ROUTES = {
     "/api/indexes": ontology.api_indexes,
     "/api/sources": ontology.api_sources,
     "/api/queries": ontology.api_queries,
+    "/api/runs": reasoning.api_runs,
+    "/api/runs/diff": reasoning.api_runs_diff,
 }
 
 # POST: path → handler(c, p).  /api/export_fdl and /api/fdl/generate share one handler (the
