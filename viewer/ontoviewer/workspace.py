@@ -28,6 +28,7 @@ from ontoviewer import config
 
 WS_FILE = config.WS_FILE
 RECENT_FILE = config.RECENT_FILE
+DATA_DIR = config.DATA_DIR
 # Workspace used when workspace.json is missing or unreadable: the SDF ontology modules
 # of this project.  Also the only workspace entitled to inherit the legacy ``ontology.db``
 # index (see ``db_path``).
@@ -83,8 +84,28 @@ def key(ws=None):
     different order give a different key (and therefore a different index).
     """
     ws = ws or load()
-    h = hashlib.sha1((ws["dir"] + "|" + "|".join(ws["files"])).encode()).hexdigest()[:10]
+    # sorted: the same file SET shares one index whatever the order it was opened in
+    h = hashlib.sha1((ws["dir"] + "|" + "|".join(sorted(ws["files"]))).encode()).hexdigest()[:10]
     return h
+
+
+def _legacy_key(ws):
+    """Pre-2026-09 key: order-sensitive (the same set in a different order duplicated the index)."""
+    return hashlib.sha1((ws["dir"] + "|" + "|".join(ws["files"])).encode()).hexdigest()[:10]
+
+
+def migrate_index_names():
+    """One-off after the order-insensitive key: rename the indexes of the current and recent
+    workspaces from their legacy (order-sensitive) name to the sorted-key name."""
+    for ws in [load()] + load_recent():
+        old = DATA_DIR / f"index_{_legacy_key(ws)}.db"
+        new = DATA_DIR / f"index_{key(ws)}.db"
+        if old != new and old.exists() and not new.exists():
+            old.rename(new)
+            for suf in ("-wal", "-shm"):
+                s = DATA_DIR / (old.name + suf)
+                if s.exists():
+                    s.rename(DATA_DIR / (new.name + suf))
 
 
 def db_path(ws=None):

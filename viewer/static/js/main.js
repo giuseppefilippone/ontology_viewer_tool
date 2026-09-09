@@ -72,6 +72,9 @@ api('/api/plugins', {}).then((d) => {
 function startUp() {
 	if (PLUGIN_ERRORS.length) alert('Plugin problems:\n\n' + PLUGIN_ERRORS.join('\n'));
 	loadOverview(); // header statistics + module list (GET /api/overview)
+	// pre-warm the server's display-order cache for the heavy kinds, so the first click on
+	// Entities does not pay the one-off sort of 400k individuals (same scope key as the sidebar)
+	setTimeout(() => ['individual', 'class'].forEach((k) => api('/api/list', { kind: k, page: 0, graph: scopeGraph() })), 1500);
 	ixRefresh(); // start polling the index status (GET /api/index_status)
 	infPoll(); // inferred view: header chip, sidebar view select, resume polling a running classification (inference.js)
 	loadList(); // initial fill of the sidebar (class tree), once every file is loaded (the tree reads the inferred-view state)

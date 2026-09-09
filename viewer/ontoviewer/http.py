@@ -27,7 +27,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from ontoviewer import api, bundle, config, editor, fdl_export, pdf, store
+from ontoviewer import api, bundle, config, editor, fdl_export, pdf, store, workspace
 from ontoviewer.api import ontology, plugins
 
 # content types of the static files; anything else is served as octet-stream
@@ -41,6 +41,8 @@ def serve(port):
     first (``api.ontology.api_reindex``); the UI polls ``/api/index_status`` meanwhile.
     The browser is opened by a timer half a second later, once the server is listening.
     """
+    workspace.migrate_index_names()  # one-off: order-insensitive index keys
+
     if not store.DB.exists():
         print("index missing: build started in the background (see the bar at the top of the app)")
         ontology.api_reindex()

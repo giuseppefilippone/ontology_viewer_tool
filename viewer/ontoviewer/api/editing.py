@@ -443,3 +443,42 @@ def edit_redo(c, p):
     Payload: unused.  Returns {"redone": number of journal rows re-applied} (0 = nothing).
     """
     return {"redone": editor.redo_last(c)}
+
+
+def edit_convert_class(c, p):
+    """Convert the selected class between defined and primitive (Protégé: Refactor →
+    Convert to defined / primitive class): every owl:equivalentClass axiom of the class
+    becomes rdfs:subClassOf, or vice versa.  Only axioms whose filler is in the index (named
+    classes, indexed anonymous individuals) can be swapped — anonymous class expressions are
+    not indexed and stay untouched (reported in "skipped").
+
+    Payload: "iri", "to": defined | primitive.  Returns {"swapped": n, "skipped": n}.
+    """
+    import json as _json
+    import time as _time
+
+    iri, to = p["iri"], p.get("to")
+    if to not in ("defined", "primitive"):
+        raise ValueError('"to" must be defined or primitive')
+    src = ("http://www.w3.org/2000/01/rdf-schema#subClassOf" if to == "defined"
+           else "http://www.w3.org/2002/07/owl#equivalentClass")
+    dst = ("http://www.w3.org/2002/07/owl#equivalentClass" if to == "defined"
+           else "http://www.w3.org/2000/01/rdf-schema#subClassOf")
+    si, pi = editor.node_id(c, iri), editor.node_id(c, src)
+    if si is None:
+        raise ValueError(f"unknown entity: {iri}")
+    if pi is None:
+        return {"swapped": 0, "skipped": 0}
+    rows = c.execute(
+        """SELECT n.iri AS o, s.graph FROM stmt s JOIN nodes n ON n.id=s.o_id
+               WHERE s.s=? AND s.p=? AND s.o_id IS NOT NULL""",
+        (si, pi),
+    ).fetchall()
+    gid = {"group": f"cnv{int(_time.time() * 1000)}"}  # one undo step for the whole conversion
+    for r in rows:
+        editor.remove_triple(c, iri, src, r["o"], None, r["graph"])
+        editor.add_triple(c, r["graph"], iri, dst, r["o"], extra=gid)
+    skipped = c.execute(
+        "SELECT COUNT(*) FROM stmt WHERE s=? AND p=? AND o_id IS NULL", (si, pi)
+    ).fetchone()[0]
+    return {"swapped": len(rows), "skipped": skipped}

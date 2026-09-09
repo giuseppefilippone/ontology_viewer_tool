@@ -1027,3 +1027,48 @@ def index_remove(c, p):
     for suf in ("-wal", "-shm"):
         (config.DATA_DIR / (name + suf)).unlink(missing_ok=True)
     return {"removed": name, "bytes": size}
+
+
+def api_sources(q):
+    """File → Loaded ontology sources…: every module of the workspace with its file facts,
+    plus the catalog-v001.xml mappings of the workspace directory (Protégé's ontology
+    libraries / catalog).
+
+    No query parameters.  Returns {"dir", "sources": [{"file", "path", "exists", "size",
+    "mtime", "statements" (indexed rows)}…], "catalog": [{"iri", "uri"}…] (empty when the
+    directory has no catalog-v001.xml)}.
+    """
+    import time as _time
+    import xml.etree.ElementTree as ET
+
+    ws = workspace.load()
+    wdir = pathlib.Path(ws["dir"])
+    try:
+        per_mod = dict(db().execute("SELECT graph, COUNT(*) FROM stmt GROUP BY graph").fetchall())
+    except sqlite3.OperationalError:
+        per_mod = {}
+    out = []
+    for f in ws["files"]:
+        p = wdir / f
+        ex = p.is_file()
+        st = p.stat() if ex else None
+        out.append(
+            {
+                "file": f,
+                "path": str(p),
+                "exists": ex,
+                "size": st.st_size if ex else 0,
+                "mtime": _time.strftime("%Y-%m-%d %H:%M", _time.localtime(st.st_mtime)) if ex else None,
+                "statements": per_mod.get(f, 0),
+            }
+        )
+    catalog = []
+    cat = wdir / "catalog-v001.xml"
+    if cat.is_file():
+        try:
+            for e in ET.parse(cat).getroot():
+                if e.tag.endswith("uri"):
+                    catalog.append({"iri": e.get("name"), "uri": e.get("uri")})
+        except ET.ParseError:
+            catalog = [{"iri": "(catalog-v001.xml is not well-formed XML)", "uri": ""}]
+    return {"dir": str(wdir), "sources": out, "catalog": catalog}

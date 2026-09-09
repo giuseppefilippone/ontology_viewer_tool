@@ -45,6 +45,7 @@ const MB = {
 		null,
 		{ l: 'Save changes', i: 'save', js: 'saveChanges()', off: !CHN },
 		{ l: 'Discard changes', i: 'delete', js: 'discardChanges()', off: !CHN },
+		{ l: 'Loaded ontology sources…', js: 'mbSources()' },
 		null,
 		{ l: 'Serialize ontology (Turtle, RDF/XML, …)…', i: 'download', js: 'openRendering()' },
 		{ l: 'Export inferred axioms as ontology', i: 'download', js: 'mbExportInferred()', off: !infActive() },
@@ -66,11 +67,17 @@ const MB = {
 		{ l: 'New annotation property…', i: 'add', js: "mbNew('annprop')" },
 		{ l: 'New datatype…', i: 'add', js: "mbNew('datatype')" },
 		null,
+		{ l: 'Create child of selected class/property…', i: 'add', js: 'mbNewChild()', off: !selIri },
+		{ l: 'Create sibling of selected class/property…', i: 'add', js: 'mbNewSibling()', off: !selIri },
+		null,
 		{ l: 'Duplicate selected entity…', i: 'add', js: 'mbDuplicate()', off: !selIri },
 		{ l: 'Deprecate selected entity', js: 'mbDeprecate()', off: !selIri },
 		{ l: 'Delete selected entity', i: 'delete', js: 'deleteEntity(selIri)', off: !selIri },
 	],
 	refactor: () => [
+		{ l: 'Convert selected class to defined (⊑ → ≡)', js: "mbConvertClass('defined')", off: !selIri },
+		{ l: 'Convert selected class to primitive (≡ → ⊑)', js: "mbConvertClass('primitive')", off: !selIri },
+		null,
 		{ l: 'Rename entity IRI… (selected entity)', i: 'edit', js: 'mbRename()', off: !selIri },
 		{ l: 'Rename namespace… (all entities)', i: 'edit', js: 'mbRenameNs()' },
 		{ l: 'Change ontology IRI… (active ontology)', i: 'edit', js: 'mbChangeOntoIri()' },
@@ -91,6 +98,9 @@ const MB = {
 		{ l: 'Plugins…', i: 'add', js: 'openPlugins()' },
 	],
 	view: () => [
+		{ l: 'Back (previous entity)', i: 'prev', js: 'histGo(-1)', off: !HIST.back.length },
+		{ l: 'Forward', i: 'next', js: 'histGo(1)', off: !HIST.fwd.length },
+		null,
 		{ l: 'Switch light / dark theme', i: 'dark', js: 'toggleTheme()' },
 		null,
 		{ l: 'Render by entity local name', js: "mbRender('name')", chk: RENDER_MODE === 'name' },
@@ -285,6 +295,32 @@ function mbExportInferred() {
 }
 
 // ---------- Edit helpers ----------
+
+/** File → Loaded ontology sources…: the module files of the workspace + the catalog mappings. */
+function mbSources() {
+	api('/api/sources', {}).then((d) => {
+		const rows = (d.sources || [])
+			.map(
+				(s) => `<div class="prow"><div class="val"><b>${esc(s.file)}</b>${s.exists ? '' : ' <span class="badge" style="background:#b3261e">missing</span>'}
+<div class="dt">${esc(s.path)}</div>
+<div class="dt">${s.exists ? `${fmtBytes(s.size)} · ${esc(s.mtime)} · ` : ''}${s.statements.toLocaleString('en')} indexed statements</div></div></div>`
+			)
+			.join('');
+		const cat = (d.catalog || [])
+			.map((c) => `<div style="padding:1px 0;font-size:11.5px;font-family:var(--mono);word-break:break-all">${esc(c.iri)} → ${esc(c.uri)}</div>`)
+			.join('');
+		openDialog(
+			`<h3 style="margin-top:0">Loaded ontology sources</h3>
+<div class="dt" style="margin-bottom:6px">Workspace directory: <code>${esc(d.dir)}</code>. A module newer than the index shows the
+"ontologies changed" chip in the header: update the index from there or from the Tools menu.</div>
+<div style="max-height:40vh;overflow:auto">${rows || '<span class="dt">no modules</span>'}</div>
+<div class="ptitle">catalog-v001.xml mappings</div>
+<div style="max-height:20vh;overflow:auto">${cat || '<span class="dt">no catalog file in the workspace directory</span>'}</div>` + DLG_CLOSE,
+			true
+		);
+	});
+}
+
 /** File → Open from URL…: the server downloads the ontology into uploads/ and opens it. */
 function mbOpenUrl() {
 	const url = prompt('URL of the ontology to open (http/https; imports are resolved among the downloaded file only)');
@@ -367,6 +403,110 @@ function mbServerLog() {
 		$('#modal').style.display = 'flex';
 	});
 }
+
+/** Entity navigation history (Protégé: Navigation → history). show() records via histVisit. */
+const HIST = { back: [], fwd: [], cur: null, nav: false };
+/** Record a visited entity (called by show, entities.js); programmatic Back/Forward skips it. */
+function histVisit(iri) {
+	if (HIST.nav || iri === HIST.cur) return;
+	if (HIST.cur) HIST.back.push(HIST.cur);
+	HIST.fwd = [];
+	HIST.cur = iri;
+}
+/** View → Back / Forward: move along the visit history (dir −1 = back, +1 = forward). */
+function histGo(dir) {
+	const from = dir < 0 ? HIST.back : HIST.fwd,
+		to = dir < 0 ? HIST.fwd : HIST.back;
+	if (!from.length) return;
+	if (HIST.cur) to.push(HIST.cur);
+	HIST.cur = from.pop();
+	HIST.nav = true;
+	openEntity(HIST.cur);
+	HIST.nav = false;
+}
+// Alt+←/→ navigate the entity history like a browser
+document.addEventListener('keydown', (e) => {
+	if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+		e.preventDefault();
+		histGo(e.key === 'ArrowLeft' ? -1 : 1);
+	}
+});
+
+/** Kind-aware sub-axiom predicate of the selected entity (subClassOf / subPropertyOf). */
+function _subPredOf(kind) {
+	if (kind === 'class') return 'http://www.w3.org/2000/01/rdf-schema#subClassOf';
+	if (['objprop', 'dataprop', 'annprop'].includes(kind)) return 'http://www.w3.org/2000/01/rdf-schema#subPropertyOf';
+	return null;
+}
+/** Shared form of Create child / sibling: create the entity, then assert it under `parent`. */
+function _newUnder(kind, parent, title) {
+	const ns = selIri.slice(0, Math.max(selIri.lastIndexOf('#'), selIri.lastIndexOf('/')) + 1);
+	openForm(
+		title,
+		[
+			{ name: 'name', label: 'Local name (or full IRI)', required: true },
+			{ name: 'ns', label: 'Namespace (used if the name is not an IRI)', value: ns },
+			{ name: 'label', label: 'rdfs:label (optional)' },
+			{ name: 'graph', label: 'Target module', type: 'module', value: activeFile() || modules[0] },
+		],
+		(v) =>
+			post('/api/edit/create', { kind, iri: entityIri(v.name, v.ns), label: v.label || null, graph: v.graph }).then((r) => {
+				if (r.error) return r;
+				return post('/api/edit/add', { s: r.created, p: _subPredOf(kind), o: parent, graph: v.graph }).then((r2) => {
+					if (!r2.error) {
+						refreshChanges();
+						openEntity(r.created);
+					}
+					return r2;
+				});
+			}),
+		`The new entity is created and asserted under ${short(parent)} as a pending change.`
+	);
+}
+/** Edit → Create child: a new class/property directly under the selected one. */
+function mbNewChild() {
+	if (!selIri || !curEntity) return;
+	const kind = curEntity.d.node.kind;
+	if (!_subPredOf(kind)) {
+		alert('Select a class or a property first (children only exist in hierarchies).');
+		return;
+	}
+	_newUnder(kind, selIri, `New child of ${short(selIri)}`);
+}
+/** Edit → Create sibling: a new class/property under the first parent of the selected one. */
+function mbNewSibling() {
+	if (!selIri || !curEntity) return;
+	const kind = curEntity.d.node.kind;
+	const pred = _subPredOf(kind);
+	if (!pred) {
+		alert('Select a class or a property first (siblings only exist in hierarchies).');
+		return;
+	}
+	const grp = (curEntity.d.out || []).find((g) => g.piri === pred);
+	const parent = grp && (grp.values.find((x) => x.iri) || {}).iri;
+	if (!parent) {
+		alert(`${short(selIri)} has no asserted parent: creating a child of owl root instead makes no sense — use New entity.`);
+		return;
+	}
+	_newUnder(kind, parent, `New sibling of ${short(selIri)} (under ${short(parent)})`);
+}
+/** Refactor → Convert to defined / primitive: swap ⊑ ↔ ≡ on the selected class (indexed fillers). */
+function mbConvertClass(to) {
+	if (!selIri) return;
+	post('/api/edit/convert_class', { iri: selIri, to }).then((r) => {
+		if (r.error) {
+			alert(r.error);
+			return;
+		}
+		refreshChanges();
+		show(encodeURIComponent(selIri));
+		let msg = `${r.swapped} axiom(s) converted (pending change).`;
+		if (r.skipped) msg += `\n${r.skipped} axiom(s) with an anonymous class expression were left untouched (not indexed): edit them from the entity page.`;
+		if (!r.swapped && !r.skipped) msg = 'Nothing to convert.';
+		alert(msg);
+	});
+}
+
 /** Edit → Duplicate selected entity: prompt the new IRI, copy every outgoing statement. */
 function mbDuplicate() {
 	if (!selIri) return;

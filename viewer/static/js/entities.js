@@ -4120,6 +4120,7 @@ function entTabReveal(el) {
 function show(enc) {
 	const iri = decodeURIComponent(enc);
 	selIri = iri;
+	if (typeof histVisit === 'function') histVisit(iri); // View → Back / Forward (menubar.js)
 	document.querySelectorAll('.item.sel').forEach((x) => x.classList.remove('sel'));
 	Promise.all([api('/api/entity', { iri }), api('/api/entity_axioms', { iri })]).then(([d, ax]) => {
 		if (d.error) {

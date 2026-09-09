@@ -88,6 +88,7 @@ GET_ROUTES = {
     "/api/diff/files": ontology.diff_files,
     "/api/check/empty": ontology.api_check_empty,
     "/api/indexes": ontology.api_indexes,
+    "/api/sources": ontology.api_sources,
 }
 
 # POST: path → handler(c, p).  /api/export_fdl and /api/fdl/generate share one handler (the
@@ -129,6 +130,7 @@ POST_ROUTES = {
     "/api/edit/undo": editing.edit_undo,
     "/api/edit/redo": editing.edit_redo,
     "/api/edit/duplicate": editing.edit_duplicate,
+    "/api/edit/convert_class": editing.edit_convert_class,
     "/api/module/new": ontology.module_new,
     "/api/serialize": ontology.api_serialize,
     "/api/diff": ontology.api_diff,
