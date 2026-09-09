@@ -14,15 +14,17 @@ A Protégé-like **menu bar** drives the global actions:
   JSON-LD — foreign formats are converted to RDF/XML on open), open recent workspaces, create
   a new empty module, save / discard the pending changes, export the inferred axioms as an
   ontology, remove the active module from the index, stop the server.
-- **Edit** — undo the last change (grouped edits as a whole), find (⌘K), create entities
-  (class, individual, properties, datatype), duplicate / deprecate / delete the selected
-  entity.
+- **Edit** — undo / redo the change journal (grouped edits as a whole), find (⌘K), create
+  entities (class, individual, properties, datatype), create a child or sibling of the
+  selected entity, duplicate / deprecate / delete the selected entity.
 - **View** — light / dark theme; render entities by local name, prefixed name or
-  `rdfs:label`; asserted vs inferred class hierarchy; reload.
+  `rdfs:label`; asserted vs inferred class hierarchy; Back / Forward entity history
+  (Alt+←/→); reload.
 - **Reasoner** — engine (HermiT / Pellet), start / synchronize / stop, configure (default
-  engine, timeout), open the inferred view or the inferred class hierarchy.
+  engine, timeout), open the inferred view or the inferred class hierarchy, run history
+  with a side-by-side diff of two saved runs (fuzzy answers or classic inferred axioms).
 - **Refactor** — rename an entity IRI, mass-rename a namespace, change the ontology IRI,
-  merge ontologies.
+  convert the selected class between defined (≡) and primitive (⊑), merge ontologies.
 - **Tools** — rebuild the search index, manage the indexes on disk (one per workspace, with
   per-index delete), clear the reasoner memory, compare ontologies, check for inconsistencies,
   check for empty entities, show the server log, manage plugins.
@@ -39,8 +41,11 @@ that view entirely (a built-in can be restored by downloading its folder again f
 repository); the Plugins dialog (Tools) lists both groups with install-from-zip, uninstall and
 per-view disable. Installed zips are validated (missing or syntactically broken scripts are
 rejected) and their scripts minified automatically — the readable sources stay on disk and are
-served with `?dev=1`. See [PLUGINS.md](PLUGINS.md) for the package format and the
-`registerView()` API.
+served with `?dev=1`. A package may also ship a **Python backend** (`"backend"` in the
+manifest: `GET_ROUTES` / `POST_ROUTES` served under `/api/p/<name>/…`, import errors isolated
+and shown in the dialog) and a **`tests.json`** smoke suite run by
+`python3 -m ontoviewer.plugintests`. See [PLUGINS.md](PLUGINS.md) for the package format, the
+`registerView()` API and the backend/test formats.
 
 Four more tools open as **modal dialogs** from the menus: **Serialize ontology** (File —
 Turtle / RDF/XML / N-Triples / N3 / JSON-LD, preview and download), **Compare ontologies**
@@ -52,7 +57,18 @@ files, `.bak` backups or external ontologies added from a URL / file), **Merge o
 The Entities sidebar defaults to the **Active ontology** scope — the active module plus its
 whole import closure, Protégé semantics — with the closure of all modules one click away;
 lists are ordered by the displayed name, ontology prefixes of imported entities included, and
-the OWL 2 / RDFS / XSD built-in datatypes and annotation properties are always listed.
+the OWL 2 / RDFS / XSD built-in datatypes and annotation properties are always listed. A
+right click on any entity opens a **context menu** (open, create child / sibling, rename,
+duplicate, deprecate, delete, copy sub-hierarchy as indented text). Adding an ontology to the
+current workspace is **incremental**: only the new modules are indexed and merged into a copy
+of the existing index.
+
+**Fuzzy layer**: the annotation that marks fuzzy entities is configurable (Ontology info →
+Fuzzy annotation; default `fuzzyLabel`, Fuzzy OWL 2 `owlAnnotationLabel`, empty = classical
+crisp ontology) and fuzziness propagates through `owl:equivalentClass` /
+`owl:equivalentProperty` to the equivalent entities. Membership-function plots on the entity
+page are **editable by dragging** the shape parameters; the Reasoner view saves per-workspace
+fuzzy **query sets**.
 
 **Exports**: axioms as CSV / LaTeX / PDF, SWRL rules as CSV / LaTeX / PDF, ontology metrics as
 CSV / LaTeX / PDF, graphs as SVG / Graphviz DOT / TikZ, the FuzzyDL translation as `.fdl`,
