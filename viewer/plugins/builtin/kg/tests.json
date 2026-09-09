@@ -1,0 +1,12 @@
+[
+ {
+  "name": "individuals for the picker",
+  "get": "/api/list",
+  "params": {
+   "kind": "individual"
+  },
+  "expect": [
+   "total"
+  ]
+ }
+]

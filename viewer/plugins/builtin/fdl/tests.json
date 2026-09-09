@@ -1,0 +1,9 @@
+[
+ {
+  "name": "fdl page",
+  "get": "/api/fdl",
+  "params": {
+   "graph": "$module"
+  }
+ }
+]

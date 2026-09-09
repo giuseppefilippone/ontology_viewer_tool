@@ -1,0 +1,12 @@
+[
+ {
+  "name": "one-row select",
+  "post": "/api/sparql",
+  "payload": {
+   "query": "SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"
+  },
+  "expect": [
+   "rows"
+  ]
+ }
+]

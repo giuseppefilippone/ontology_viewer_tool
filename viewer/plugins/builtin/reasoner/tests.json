@@ -1,0 +1,20 @@
+[
+ {
+  "name": "saved query set",
+  "get": "/api/queries",
+  "expect": [
+   "queries"
+  ]
+ },
+ {
+  "name": "inference status",
+  "get": "/api/inference/status"
+ },
+ {
+  "name": "run history",
+  "get": "/api/runs",
+  "expect": [
+   "runs"
+  ]
+ }
+]

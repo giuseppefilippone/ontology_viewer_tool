@@ -1,0 +1,23 @@
+[
+ {
+  "name": "overview",
+  "get": "/api/overview",
+  "expect": [
+   "kinds"
+  ]
+ },
+ {
+  "name": "ontology headers",
+  "get": "/api/ontology",
+  "expect": [
+   "ontologies"
+  ]
+ },
+ {
+  "name": "loaded sources",
+  "get": "/api/sources",
+  "expect": [
+   "sources"
+  ]
+ }
+]

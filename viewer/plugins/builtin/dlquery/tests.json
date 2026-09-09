@@ -1,0 +1,12 @@
+[
+ {
+  "name": "classes for the autocomplete",
+  "get": "/api/list",
+  "params": {
+   "kind": "class"
+  },
+  "expect": [
+   "items"
+  ]
+ }
+]

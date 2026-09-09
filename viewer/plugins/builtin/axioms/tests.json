@@ -1,0 +1,13 @@
+[
+ {
+  "name": "module axioms",
+  "get": "/api/axioms",
+  "params": {
+   "graph": "$module"
+  },
+  "expect": [
+   "tbox",
+   "abox"
+  ]
+ }
+]

@@ -1,0 +1,33 @@
+[
+ {
+  "name": "class list",
+  "get": "/api/list",
+  "params": {
+   "kind": "class"
+  },
+  "expect": [
+   "total",
+   "items"
+  ]
+ },
+ {
+  "name": "search",
+  "get": "/api/search",
+  "params": {
+   "q": "th"
+  },
+  "expect": [
+   "items"
+  ]
+ },
+ {
+  "name": "class tree",
+  "get": "/api/tree",
+  "params": {
+   "kind": "class"
+  },
+  "expect": [
+   "roots"
+  ]
+ }
+]

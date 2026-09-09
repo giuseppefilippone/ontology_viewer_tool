@@ -1,0 +1,10 @@
+[
+ {
+  "name": "fuzzy overview",
+  "get": "/api/fuzzy",
+  "expect": [
+   "groups",
+   "total"
+  ]
+ }
+]

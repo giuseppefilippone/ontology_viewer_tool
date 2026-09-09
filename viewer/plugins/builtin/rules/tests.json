@@ -1,0 +1,9 @@
+[
+ {
+  "name": "rule list",
+  "get": "/api/rules",
+  "expect": [
+   "rules"
+  ]
+ }
+]

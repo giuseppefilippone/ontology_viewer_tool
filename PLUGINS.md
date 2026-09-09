@@ -130,6 +130,32 @@ When the view needs data the JSON API does not expose yet:
    possibly create) an index database.
 3. Errors: raise — a POST handler's exception becomes `{"error": …}` with HTTP 400.
 
+## Testing a package
+
+A package may carry a `tests.json`: a list of read-only smoke shots run in-process against
+the index of the current workspace — no running server needed:
+
+```json
+[
+ {"name": "fuzzy overview", "get": "/api/fuzzy", "expect": ["groups", "total"]},
+ {"get": "/api/axioms", "params": {"graph": "$module"}, "expect": ["tbox"]},
+ {"post": "/api/sparql", "payload": {"query": "SELECT ?s WHERE { ?s ?p ?o } LIMIT 1"}},
+ {"get": "p:stats", "params": {"kind": "class"}}
+]
+```
+
+`get` is an `/api/…` GET route or `p:<route>` (the package's own Python backend); `post`
+works for the read-only routes only (`api.NO_CONNECTION`). `params` values may use
+`"$module"` (the first workspace file); `expect` lists keys the JSON answer must carry, and
+an `error` key always fails the shot. Run with:
+
+```
+cd viewer && python3 -m ontoviewer.plugintests            # every package with a tests.json
+cd viewer && python3 -m ontoviewer.plugintests fuzzy kg   # selected packages
+```
+
+Every built-in package ships such a suite; exit code 0 means all shots passed.
+
 ## Adding menu entries
 
 The menu bar (`viewer/static/js/menubar.js`) is data-driven: `MB` maps each menu name to a
