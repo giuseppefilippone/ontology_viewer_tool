@@ -149,7 +149,7 @@ function drawOntology() {
       <label>Location</label>
       <span>${esc(o.file || '—')}</span>
       <label for="ofzl" title="Local name of the annotation property that marks fuzzy entities (the Fuzzy OWL 2 owlAnnotationLabel). Empty = classical crisp ontology. Fuzziness also propagates through owl:equivalentClass / owl:equivalentProperty to the equivalent entities.">Fuzzy annotation</label>
-      <input id="ofzl" value="${esc(uiConfig.fuzzy_label === undefined ? 'fuzzyLabel' : uiConfig.fuzzy_label)}" placeholder="empty = crisp ontology" spellcheck="false" onkeydown="if(event.key==='Enter')this.blur()" onchange="ontSetFuzzyLabel(this.value.trim())">
+      <input id="ofzl" list="ofzldl" value="${esc(uiConfig.fuzzy_label === undefined ? 'fuzzyLabel' : uiConfig.fuzzy_label)}" placeholder="empty = crisp ontology" spellcheck="false" autocomplete="off" onkeydown="if(event.key==='Enter')this.blur()" onchange="ontSetFuzzyLabel(this.value.trim())"><datalist id="ofzldl"></datalist>
     </div>
     <div class="sect"><h3>Annotations <button class="ibtn" onclick="ontAddAnnotation(decodeURIComponent('${oenc}'),'${esc(o.file || '')}')" title="Add an annotation to the ontology header (e.g. rdfs:comment, dc:title, owl:versionInfo)">+ annotation</button></h3>${
 			o.annotations.length
@@ -337,6 +337,16 @@ function drawOntology() {
 		) +
 		panel('metrics', metrics + breakdown) +
 		panel('export', exportCard);
+	// autocomplete of the Fuzzy annotation field: the annotation properties of the closure
+	// of the active ontology (declared ones plus the OWL 2 / RDFS built-ins), by local name
+	api('/api/list', { kind: 'annprop', graph: closure.map((i) => by[i]?.file).filter(Boolean).join(',') }).then((r) => {
+		const dl = $('#ofzldl');
+		if (!dl) return;
+		dl.innerHTML = [...new Set((r.items || []).map((n) => short(n.iri)))]
+			.sort((a, b) => a.localeCompare(b))
+			.map((n) => `<option value="${esc(n)}"></option>`)
+			.join('');
+	});
 	/**
 	 * Reads the export form: selected metrics and scope, and derives the column names and a row builder.
 	 * @returns {{keys: string[], scope: string, cols: string[], rowOf: function(string): number[]}}
