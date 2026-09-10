@@ -135,7 +135,10 @@ def api_search(q):
         graph  module file: only entities declared there (default '' = closure)
 
     Returns {"items": [node_json…]} ordered by IRI length (shortest = most likely match first);
-    anonymous individuals (kind 'anon') are never listed — they are only shown inline.
+    anonymous individuals (kind 'anon') are never listed — they are only shown inline.  The OWL
+    built-in top/bottom entities (owl:Thing, owl:Nothing, owl:topObjectProperty,
+    owl:topDataProperty) are prepended when they match: they belong to the language, so every
+    autocomplete offers them under any scope.
     """
     text = q.get("q", [""])[0]
     if len(text) < 2:
@@ -151,7 +154,13 @@ def api_search(q):
         )
         .fetchall()
     )
-    return {"items": [node_json(r) for r in rows]}
+    tl = text.lower()
+    tops = [
+        {"id": get_id(b), "iri": b, "label": None, "kind": k, "name": config.builtin_name(b), "fuzzy": False, "builtin": True}
+        for b, k in config.BUILTIN_TOPS.items()
+        if tl in config.builtin_name(b).lower()
+    ]
+    return {"items": tops + [node_json(r) for r in rows if r["iri"] not in config.BUILTIN_TOPS]}
 
 
 def api_entity(q):

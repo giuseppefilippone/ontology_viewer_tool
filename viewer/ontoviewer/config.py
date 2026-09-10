@@ -104,8 +104,16 @@ def builtin_name(iri):
     return pfx + iri.rsplit("#", 1)[-1]
 
 
+# OWL 2 built-in top/bottom entities: the roots of the hierarchies, selectable like in Protégé
+BUILTIN_TOPS = {
+    str(OWL.Thing): "class",
+    str(OWL.Nothing): "class",
+    str(OWL.topObjectProperty): "objprop",
+    str(OWL.topDataProperty): "dataprop",
+}
+
 # built-in IRI -> entity kind (synthetic nodes of the lists / trees / entity view)
-BUILTIN_KIND = {**{b: "datatype" for b in BUILTIN_DATATYPES}, **{b: "annprop" for b in BUILTIN_ANNPROPS}}
+BUILTIN_KIND = {**{b: "datatype" for b in BUILTIN_DATATYPES}, **{b: "annprop" for b in BUILTIN_ANNPROPS}, **BUILTIN_TOPS}
 
 # ---- sizes ---------------------------------------------------------------------------------
 PAGE_SIZE = 200  # entity lists / instances per page

@@ -474,6 +474,9 @@ function ctxOpen(ev, iri) {
 	ev.preventDefault();
 	const kind = listKind();
 	const canHier = ['class', 'objprop', 'dataprop', 'annprop'].includes(kind);
+	// OWL built-in vocabulary (owl:Thing, owl:top*Property, built-in annotations): not asserted
+	// in the files, so it cannot be renamed / duplicated / deprecated / deleted or get a sibling
+	const builtin = _isBuiltinTop(iri) || iri.startsWith('http://www.w3.org/');
 	const item = (l, js, off) =>
 		`<div class="rmi ${off ? 'off' : ''}" onclick="ctxClose();${off ? '' : js}">${l}</div>`;
 	const m = $('#ctxmenu');
@@ -482,12 +485,12 @@ function ctxOpen(ev, iri) {
 		item('Open', `openEntity(${JSON.stringify(iri)})`) +
 		'<div class="rms"></div>' +
 		item('Create child…', `ctxNewChild(${JSON.stringify(iri)})`, !canHier) +
-		item('Create sibling…', `ctxNewSibling(${JSON.stringify(iri)})`, !canHier) +
+		item('Create sibling…', `ctxNewSibling(${JSON.stringify(iri)})`, !canHier || builtin) +
 		'<div class="rms"></div>' +
-		item('Rename IRI…', `mbRename(${JSON.stringify(iri)})`) +
-		item('Duplicate…', `mbDuplicate(${JSON.stringify(iri)})`) +
-		item('Deprecate', `mbDeprecate(${JSON.stringify(iri)})`) +
-		item('Delete', `deleteEntity(${JSON.stringify(iri)})`) +
+		item('Rename IRI…', `mbRename(${JSON.stringify(iri)})`, builtin) +
+		item('Duplicate…', `mbDuplicate(${JSON.stringify(iri)})`, builtin) +
+		item('Deprecate', `mbDeprecate(${JSON.stringify(iri)})`, builtin) +
+		item('Delete', `deleteEntity(${JSON.stringify(iri)})`, builtin) +
 		'<div class="rms"></div>' +
 		item('Copy sub-hierarchy as indented text', `ctxCopySubtree(${JSON.stringify(iri)})`, !canHier);
 	m.style.left = Math.min(ev.clientX, innerWidth - 280) + 'px';
@@ -499,6 +502,8 @@ function ctxClose() {
 	const m = $('#ctxmenu');
 	if (m) m.hidden = true;
 }
+/** owl:Thing / owl:topObjectProperty / owl:topDataProperty (implicit hierarchy roots). */
+const _isBuiltinTop = (iri) => /^http:\/\/www\.w3\.org\/2002\/07\/owl#(Thing|Nothing|topObjectProperty|topDataProperty)$/.test(iri);
 /** Context: create a child of the clicked entity (kind = current sidebar tab). */
 function ctxNewChild(iri) {
 	const kind = listKind();
@@ -521,8 +526,9 @@ function ctxNewSibling(iri) {
 }
 /** Like _newUnder but anchored on an arbitrary iri (namespace prefill source). */
 function _newUnderIri(kind, parent, title, nsFrom) {
-	const base = nsFrom || parent;
-	const ns = base.slice(0, Math.max(base.lastIndexOf('#'), base.lastIndexOf('/')) + 1);
+	const top = _isBuiltinTop(parent); // implicit root: create the entity, assert no parent axiom
+	const base = top ? '' : nsFrom || parent;
+	const ns = base ? base.slice(0, Math.max(base.lastIndexOf('#'), base.lastIndexOf('/')) + 1) : NS[kind] || NS.individual;
 	openForm(
 		title,
 		[
@@ -534,6 +540,11 @@ function _newUnderIri(kind, parent, title, nsFrom) {
 		(v) =>
 			post('/api/edit/create', { kind, iri: entityIri(v.name, v.ns), label: v.label || null, graph: v.graph }).then((r) => {
 				if (r.error) return r;
+				if (top) {
+					refreshChanges();
+					openEntity(r.created);
+					return r;
+				}
 				return post('/api/edit/add', { s: r.created, p: _subPredOf(kind), o: parent, graph: v.graph }).then((r2) => {
 					if (!r2.error) {
 						refreshChanges();
@@ -542,7 +553,9 @@ function _newUnderIri(kind, parent, title, nsFrom) {
 					return r2;
 				});
 			}),
-		`The new entity is created and asserted under ${short(parent)} as a pending change.`
+		top
+			? `The new entity is created top-level (${short(parent)} is the implicit root: no parent axiom is asserted).`
+			: `The new entity is created and asserted under ${short(parent)} as a pending change.`
 	);
 }
 /** Context: copy the subtree rooted at the entity as tab-indented text (Protégé: Edit menu). */
@@ -556,7 +569,7 @@ function ctxCopySubtree(iri) {
 			}
 			return null;
 		};
-		const root = find(d.roots);
+		const root = _isBuiltinTop(iri) ? { name: short(iri), children: d.roots } : find(d.roots);
 		if (!root) {
 			alert('Node not found in the current tree (check the scope).');
 			return;

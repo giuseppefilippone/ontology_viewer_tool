@@ -584,6 +584,12 @@ function viewChanged() {
 const TREE_KINDS = { tree: 'class', objprop: 'objprop', dataprop: 'dataprop', annprop: 'annprop' };
 // synthetic top node shown above the roots of each hierarchy (annotation properties have none)
 const TREE_ROOT = { class: 'owl:Thing', objprop: 'owl:topObjectProperty', dataprop: 'owl:topDataProperty' };
+// IRIs of the synthetic top rows: clickable (entity page, context menu) like every other row
+const TREE_ROOT_IRI = {
+	class: 'http://www.w3.org/2002/07/owl#Thing',
+	objprop: 'http://www.w3.org/2002/07/owl#topObjectProperty',
+	dataprop: 'http://www.w3.org/2002/07/owl#topDataProperty'
+};
 /**
  * Entity kind of the current sub-tab ('tree' → 'class', the other tab ids coincide with the kind).
  * @returns {string}
@@ -678,7 +684,7 @@ function treeHtml(roots, kind, o) {
 	const rows = roots.map(rec).join('');
 	// wrap the roots under owl:Thing / owl:top*Property (always expanded); annotation properties have no top node
 	const body = TREE_ROOT[kind]
-		? `<li><div class="row">${tg}▾</span>${dot(kind)}<span class="lbl"><a class="ent" style="font-weight:600">${TREE_ROOT[kind]}</a></span></div><ul>${rows}</ul></li>`
+		? `<li><div class="row${o.selected === TREE_ROOT_IRI[kind] ? ' sel' : ''}">${tg}▾</span>${dot(kind)}<span class="lbl"><a class="ent" style="font-weight:600" onclick="${esc(o.click(TREE_ROOT_IRI[kind]))}">${TREE_ROOT[kind]}</a></span></div><ul>${rows}</ul></li>`
 		: rows;
 	return (
 		`<div class="tree"><label class="dt" style="display:inline-flex;align-items:center;gap:6px;margin:4px 0 8px 14px;cursor:pointer;text-transform:none"><input type="checkbox" ${o.expanded ? 'checked' : ''} onchange="${esc(o.expandJs)}"> Expand all</label>` +
