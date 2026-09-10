@@ -71,7 +71,8 @@ my-plugin.zip
     "description": "One line shown in the Plugins dialog",
     "js": ["my_views.js"],
     "css": ["my.css"],
-    "backend": "backend.py"
+    "backend": "backend.py",
+    "help": "help.html"
 }
 ```
 
@@ -107,6 +108,9 @@ my-plugin.zip
   badge with the message, and every call answers with it. Built-in packages may declare a
   backend the same way. Anything beyond that (new tables, background jobs) still fits a
   fork better (next sections).
+- `"help"` names an HTML fragment inside the package: it becomes the view's **help page**,
+  opened by the `?` button at the right end of the tab bar, by Help → "Help for the current
+  view…" and by the "help" link of the Plugins dialog. Every built-in package ships one.
 
 ## Where the code goes (forking the repository)
 

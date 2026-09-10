@@ -65,6 +65,7 @@ def _entry(d, mf):
         "css": mf.get("css", []),
         "backend": mf.get("backend"),
         "backend_error": b.get("error"),
+        "help": mf.get("help"),
     }
 
 

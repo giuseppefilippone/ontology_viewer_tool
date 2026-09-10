@@ -5,5 +5,6 @@
  "description": "List the axioms of a module or of the closure in DL, Fuzzy DL or FuzzyDL notation; export as LaTeX / PDF",
  "js": [
   "view.js"
- ]
+ ],
+ "help": "help.html"
 }

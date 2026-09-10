@@ -5,5 +5,6 @@
  "description": "SWRL and fuzzy rules of the workspace: try a rule on the data, add rules to a module",
  "js": [
   "view.js"
- ]
+ ],
+ "help": "help.html"
 }

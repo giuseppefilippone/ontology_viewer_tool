@@ -1,0 +1,7 @@
+<p>Overview of the <b>active ontology</b> (the module chosen in the header bar) in three sub-tabs.</p>
+<ul>
+<li><b>Overview</b> — the ontology header: editable Ontology IRI and Version IRI (Enter or click away to apply), location, annotations (+ to add, ✕ to remove), direct and indirect imports (+ import from workspace, file or URL), prefixes (✎ renames a namespace in every module) and general class axioms.</li>
+<li><b>Fuzzy annotation</b> (Overview, header card) — the local name of the annotation property that marks fuzzy entities (default <code>fuzzyLabel</code>). Leave it empty to treat the workspace as a classical crisp ontology. Fuzziness also propagates through <code>owl:equivalentClass</code> / <code>owl:equivalentProperty</code>.</li>
+<li><b>Metrics</b> — OWL API-style metrics, Closure column (active ontology + imports) next to the Module column; "count annotations" includes/excludes annotation axioms.</li>
+<li><b>Export</b> — metrics as CSV, LaTeX or PDF (scope: module, closure, both or per-module breakdown).</li>
+</ul>

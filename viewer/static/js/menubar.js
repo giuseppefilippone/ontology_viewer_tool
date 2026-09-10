@@ -119,6 +119,7 @@ const MB = {
 		{ l: 'Reset layout to default', i: 'refresh', js: 'mbResetLayout()' },
 	],
 	help: () => [
+		{ l: 'Help for the current view…', js: 'viewHelp()', off: !PLUGIN_HELP[document.querySelector('#maintabs button.on')?.dataset.mt] },
 		{ l: 'Help tab: notations and keywords', js: "document.querySelector('#maintabs [data-mt=help]')?.click()" },
 		{ l: 'Project page on GitHub', js: "window.open('https://github.com/giuseppefilippone/ontology_viewer_tool')" },
 		null,

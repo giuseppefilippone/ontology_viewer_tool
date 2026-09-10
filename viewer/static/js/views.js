@@ -271,6 +271,8 @@ function openPlugins() {
 }
 /** Draw the plugin dialog from the /api/plugins payload (builtin + custom packages). @returns {void} */
 function openPluginsDraw(d) {
+	// "help" link = the package ships a help page (plugin.json "help")
+	const hl = (p) => (p.help ? ` <span class="expand" onclick="viewHelp('${esc(p.name)}')">help</span>` : '');
 	// green badge = the package ships a Python backend (/api/p/<name>/…); red = its import failed
 	const bk = (p) => (p.backend ? (p.backend_error ? ` <span class="badge" style="background:#b3261e" title="${esc(p.backend_error)}">backend error</span>` : ' <span class="badge" style="background:#2e7d32" title="Python backend: /api/p/' + esc(p.name) + '/">backend</span>') : '');
 	const builtins = (d.builtin || [])
@@ -281,7 +283,7 @@ function openPluginsDraw(d) {
 			const on = tab && tab.style.display !== 'none';
 			return `<div class="prow"><div class="val"><b>${esc(p.title || p.name)}</b> <span class="badge" style="background:#6c757d">built-in</span>${bk(p)}${on ? '' : ' <span class="badge" style="background:#9a6b12">disabled</span>'}
 <div class="dt">${esc(p.description || '')}</div>
-<div class="dt">plugins/builtin/${esc(p.name)}/ · ${esc((p.js_min || p.js).join(', '))}</div></div>
+<div class="dt">plugins/builtin/${esc(p.name)}/ · ${esc((p.js_min || p.js).join(', '))}${hl(p)}</div></div>
 <span class="acts" style="opacity:1">${
 				tab
 					? `<button class="ibtn" style="margin:0" onclick="mbTabToggle('${esc(p.name)}');openPlugins()"
@@ -348,7 +350,7 @@ Reinstalling the same name replaces the plugin (upgrade). Full guide: <a class="
 						p
 					) => `<div class="prow"><div class="val"><b>${esc(p.name)}</b>${p.version ? ` <span class="badge" style="background:#3457b0">v${esc(p.version)}</span>` : ''}${bk(p)}
 <div class="dt">${esc(p.description || 'no description')}</div>
-<div class="dt">files: ${[...p.js, ...(p.css || [])].map(esc).join(', ') || 'none'} · served at <code>/plugins/${esc(p.name)}/</code></div></div>
+<div class="dt">files: ${[...p.js, ...(p.css || [])].map(esc).join(', ') || 'none'} · served at <code>/plugins/${esc(p.name)}/</code>${hl(p)}</div></div>
 <span class="acts" style="opacity:1"><button class="ibtn danger" style="margin:0" onclick="pluginRemove('${esc(p.name)}')"
 	title="Delete this plugin's directory under viewer/data/plugins/ and reload the page">${ic('delete')} Uninstall</button></span></div>`
 				)

@@ -5,5 +5,6 @@
  "description": "Browse and edit the classes, individuals, properties and datatypes of the workspace",
  "js": [
   "view.js"
- ]
+ ],
+ "help": "help.html"
 }

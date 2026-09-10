@@ -5,5 +5,6 @@
  "description": "Draw the class graph of the schema: subclass, equivalence, disjointness and property edges, UML boxes",
  "js": [
   "view.js"
- ]
+ ],
+ "help": "help.html"
 }

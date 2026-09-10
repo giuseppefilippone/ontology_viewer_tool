@@ -39,6 +39,7 @@ api('/api/plugins', {}).then((d) => {
 		if (--pending === 0) startUp();
 	};
 	items.forEach(({ base, p, custom }) => {
+		if (p.help) PLUGIN_HELP[p.name] = { url: base + p.help, title: p.title || p.name };
 		(p.css || []).forEach((f) => {
 			const l = document.createElement('link');
 			l.rel = 'stylesheet';

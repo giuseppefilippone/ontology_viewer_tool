@@ -763,6 +763,8 @@ function bindMainTab(b) {
 		document.querySelectorAll('body > [id^="tab-"]').forEach((p) => {
 			p.style.display = p.id === 'tab-' + t ? (t === 'entities' ? 'flex' : 'block') : 'none';
 		});
+		const hb = $('#viewhelpbtn'); // "?" of the tab bar: shown only when the view ships a help page
+		if (hb) hb.style.display = PLUGIN_HELP[t] ? '' : 'none';
 		if (VIEWS[t] && VIEWS[t].render) VIEWS[t].render();
 	};
 }
@@ -771,6 +773,22 @@ function bindMainTab(b) {
 /** Registered views: id → {id, title, tooltip, render}. EVERY main tab goes through this
  * registry — the built-in ones register in views.js, installed plugins at load. See PLUGINS.md. */
 const VIEWS = {};
+// view id → {url, title} of the package's help page (plugin.json "help"), filled by main.js
+const PLUGIN_HELP = {};
+/**
+ * Open the help dialog of a view (default: the active main tab). The help is the package's
+ * own HTML fragment (plugin.json "help", e.g. help.html), fetched from the package directory.
+ * @param {string} [id] View id; omitted = the tab currently shown.
+ */
+function viewHelp(id) {
+	id = id || document.querySelector('#maintabs button.on')?.dataset.mt;
+	const h = PLUGIN_HELP[id];
+	if (!h) return;
+	fetch(h.url)
+		.then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.status))))
+		.then((html) => openDialog(`<h3 style="margin-top:0">${esc(h.title)} — help</h3>${html}` + DLG_CLOSE, true))
+		.catch(() => toast(`Help page of ${h.title} not found.`));
+}
 /**
  * Plugin hook: add a main-tab view without touching the core files.
  * Creates the #tab-<id> panel (a direct child of <body>; an existing static panel with that id is
