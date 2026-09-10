@@ -51,8 +51,8 @@ function renderReasoner() {
   <div class="card" style="max-width:none;flex:1;min-width:min(420px,100%)"><h2>Fuzzy reasoner (fuzzy-dl-owl2 / FuzzyDL)</h2>
     <div class="dt" style="margin:4px 0">OWL 2 + fuzzyLabel → FDL → query. Solver MILP: <select id="rprov"><option value="gurobi">gurobi (academic licence)</option><option value="mip">mip (CBC, free)</option><option value="pulp">pulp (CBC)</option><option value="pulp_highs">pulp_highs</option></select></div>
     <div id="rqueries"></div><span class="expand" onclick="rqAdd()" title="Add a FuzzyDL query row (instance / subsumption / satisfiability / defuzzification)">+ add query</span>
-    <span class="expand" onclick="rqSave()" title="Save the query rows and the selected individuals for this workspace (restored automatically)">save query set</span>
-    <span class="expand" onclick="rqRestore(true)" title="Reload the query set saved for this workspace">load saved set</span>
+    <span class="dt">·</span> <span class="expand" onclick="rqSave()" title="Save the query rows and the selected individuals for this workspace (restored automatically)">save query set</span>
+    <span class="dt">·</span> <span class="expand" onclick="rqRestore(true)" title="Reload the query set saved for this workspace">load saved set</span>
     <div style="margin-top:10px"><button class="ibtn primary" style="margin:0" onclick="runFuzzy()" title="Translate the schema and the selected individuals to FuzzyDL and answer the queries above with the chosen MILP solver">${ic('play')} Run fuzzy reasoner</button> <span id="rfstatus" class="dt"></span></div>
     <div id="rfres" style="margin-top:10px"></div>
   </div>
