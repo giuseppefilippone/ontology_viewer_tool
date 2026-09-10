@@ -478,7 +478,8 @@ function ctxOpen(ev, iri) {
 	// in the files, so it cannot be renamed / duplicated / deprecated / deleted or get a sibling
 	const builtin = _isBuiltinTop(iri) || iri.startsWith('http://www.w3.org/');
 	const item = (l, js, off) =>
-		`<div class="rmi ${off ? 'off' : ''}" onclick="ctxClose();${off ? '' : js}">${l}</div>`;
+		// esc(): the js carries double quotes (JSON.stringify'd IRIs) that would end the attribute
+		`<div class="rmi ${off ? 'off' : ''}" onclick="ctxClose();${off ? '' : esc(js)}">${l}</div>`;
 	const m = $('#ctxmenu');
 	m.innerHTML =
 		`<div class="rmh" style="max-width:260px;overflow:hidden;text-overflow:ellipsis">${esc(short(iri))}</div>` +
