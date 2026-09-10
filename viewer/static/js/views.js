@@ -313,6 +313,9 @@ Uninstall deletes the package folder — restore it by downloading it again from
 ├── plugin.json     required manifest
 ├── my_views.js     the scripts listed in "js"
 ├── my.css          optional stylesheets ("css")
+├── backend.py      optional Python backend ("backend")
+├── help.html       optional help page ("help")
+├── tests.json      optional smoke tests
 └── logo.png        other assets, served at
                     /plugins/&lt;name&gt;/logo.png</pre>
         <div class="ptitle">plugin.json</div>
@@ -321,7 +324,9 @@ Uninstall deletes the package folder — restore it by downloading it again from
   "version": "1.0",
   "description": "One line for this list",
   "js": ["my_views.js"],
-  "css": []
+  "css": [],
+  "backend": "backend.py",
+  "help": "help.html"
 }</pre></div>
       <div style="max-width:520px"><div class="ptitle" style="margin-top:0">Minimal my_views.js: one new view</div>
 <pre style="background:var(--bg);padding:10px;border-radius:6px;font-size:11.5px">registerView({
@@ -338,7 +343,11 @@ Uninstall deletes the package folder — restore it by downloading it again from
         <div class="dt" style="margin-top:6px">The scripts load after the core at every start, so every global helper is available
 (<code>$</code>, <code>api</code>/<code>post</code>, <code>esc</code>, <code>ic</code>, <code>entLink</code>, <code>openForm</code>, <code>downloadText</code>, …).
 A view registered this way becomes a main tab and joins the Window menu, the drag-to-reorder and the <code>#tab=</code> deep links.
-Reinstalling the same name replaces the plugin (upgrade). Full guide: <a class="ent" onclick="window.open('https://github.com/giuseppefilippone/ontology_viewer_tool/blob/main/PLUGINS.md')">PLUGINS.md</a>.</div></div>
+Reinstalling the same name replaces the plugin (upgrade).
+<b>backend.py</b> (optional) defines <code>GET_ROUTES</code> / <code>POST_ROUTES</code> dicts served at <code>/api/p/&lt;name&gt;/&lt;route&gt;</code> — call them with <code>papi()</code> / <code>ppost()</code>; an import error shows here as a red badge.
+<b>help.html</b> (optional) becomes the view's help page: the round <b>?</b> of the tab bar, Help menu and the "help" link of this list.
+<b>tests.json</b> (optional) holds read-only smoke shots run by <code>python3 -m ontoviewer.plugintests</code>.
+Full guide: <a class="ent" onclick="window.open('https://github.com/giuseppefilippone/ontology_viewer_tool/blob/main/PLUGINS.md')">PLUGINS.md</a>.</div></div>
     </div></details>` + DLG_CLOSE,
 		true
 	);
